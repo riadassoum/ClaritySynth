@@ -123,24 +123,64 @@ def _classifyChar(ch):
     return "neutral"
 
 
-def _punctPause(text, sr):
-    """Return trailing silence (bytes) appropriate to the punctuation that
-    ENDS this text chunk, so neural speech gets natural pauses the models
-    otherwise flatten. Sentence enders get a longer pause than commas."""
+def _punctPause(text, sr, is_arabic=False):
+    """Return trailing silence for the punctuation ENDING this chunk.
+
+    The neural ARABIC model flattens ALL punctuation, so Arabic needs
+    explicit pauses at commas/colons AND sentence enders. The English
+    (Piper) voice renders its own clause phrasing, so English only gets a
+    small extra pause at sentence enders to avoid doubling up."""
     t = text.rstrip()
     if not t:
         return b""
     last = t[-1]
-    # sentence enders (Arabic + Latin)
-    if last in ".!?\u061f\u06d4":          # . ! ? ؟ ۔
-        ms = 0.22
-    elif last in ":\u061b;":               # : ؛ ;
-        ms = 0.16
-    elif last in ",\u060c":                 # , ،
-        ms = 0.11
+    if is_arabic:
+        if last in ".!?\u061f\u06d4":       # sentence enders
+            ms = 0.20
+        elif last in ":\u061b;":            # colon / Arabic semicolon
+            ms = 0.15
+        elif last in ",\u060c":             # comma / Arabic comma
+            ms = 0.11
+        else:
+            return b""
     else:
-        return b""
+        if last in ".!?":                    # English: sentence enders only
+            ms = 0.13
+        else:
+            return b""
     return b"\x00\x00" * int(sr * ms)
+
+
+def _englishClauses(text):
+    """Split English into natural clause/sentence units at punctuation
+    ONLY, keeping each unit whole so the neural voice does not add
+    sentence-boundary intonation mid-phrase. A unit with no punctuation is
+    yielded intact (no arbitrary word chopping); only a very long
+    punctuation-free run is broken, and then on a large word boundary so
+    any seam is minimally audible."""
+    import re
+    # split AFTER sentence/clause punctuation, keeping the mark with its
+    # clause. Covers . ! ? ; : , and — (em dash) and newlines.
+    parts = re.split(r'(?<=[.!?;:,])\s+|\s*[\u2014]\s*|\n+', text)
+    for p in parts:
+        if p is None:
+            continue
+        p = p.strip()
+        if not p:
+            continue
+        # only break if a single punctuation-free run is very long
+        if len(p) <= 220:
+            yield p
+        else:
+            words = p.split()
+            cur = []
+            for w in words:
+                cur.append(w)
+                if len(" ".join(cur)) >= 200:
+                    yield " ".join(cur)
+                    cur = []
+            if cur:
+                yield " ".join(cur)
 
 
 def _wordGroups(text, n=8):
@@ -740,12 +780,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                         self._neuralPlayer.feed(
                             _resample(np.frombuffer(raw, np.int16),
                                       out_sr).tobytes())
-                        pause = _punctPause(sub, out_sr)
+                        pause = _punctPause(sub, out_sr, is_arabic=True)
                         if pause:
                             self._neuralPlayer.feed(pause)
                         fed_any = True
             else:
-                for sub in _wordGroups(seg, 8):
+                for sub in _englishClauses(seg):
                     if cancelled():
                         break
                     raw, seg_sr = self._englishPCM(sub, pitchOffset)
@@ -753,6 +793,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                         self._neuralPlayer.feed(
                             _resample(np.frombuffer(raw, np.int16),
                                       seg_sr).tobytes())
+                        # only pause when the clause actually ENDS with
+                        # punctuation — no artificial breaks mid-sentence
                         pause = _punctPause(sub, out_sr)
                         if pause:
                             self._neuralPlayer.feed(pause)
