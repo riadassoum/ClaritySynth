@@ -403,6 +403,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._neuralArabic = True
         self._rateBoost = False
         self._cancelFlag = threading.Event()
+        self._gen = 0            # bumped on each cancel; guards stale audio
         self._queue = queue.Queue()
         self._player = None
         self._makePlayer()
@@ -667,6 +668,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 
     def cancel(self):
         self._cancelFlag.set()
+        self._gen += 1
         try:
             while True:
                 self._queue.get_nowait()
@@ -732,7 +734,9 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         the concatenated audio through a single player. Arabic uses the
         neural Arabic voice; English uses Piper if available, else formant
         rendered to PCM. Returns True if handled."""
-        cancelled = self._cancelFlag.is_set
+        my_gen = self._gen
+        cancelled = lambda: (self._cancelFlag.is_set()
+                             or self._gen != my_gen)
         try:
             from . import timescale
             import numpy as np
@@ -760,45 +764,69 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             fr = idx - i0
             return (arr[i0] * (1 - fr) + arr[i1] * fr).astype(np.int16)
 
-        # STREAM: feed each segment's audio to the single player as soon as
-        # it is ready, so playback STARTS on the first segment instead of
-        # waiting for the whole (possibly long) utterance to synthesize.
-        # For long English runs (e.g. a pasted URL), synthesize in smaller
-        # word-groups so the first sound comes out almost immediately.
-        fed_any = False
+        # Build the ordered list of work units (each an Arabic chunk or an
+        # English clause). A background PRODUCER thread synthesizes them in
+        # order into a queue while the main CONSUMER feeds the player. So
+        # while unit N plays, unit N+1 is already being synthesized — the
+        # gap at an Arabic/English boundary (or any unit boundary) is
+        # eliminated. Absolute synchronization: one player, one ordered
+        # stream, no overlap, no inter-unit silence gap.
+        units = []
         for seg, is_ar in _splitByScript(text):
-            if cancelled():
-                break
             if not seg.strip():
                 continue
             if is_ar:
                 for sub in _neuralChunks(seg):
-                    if cancelled():
-                        break
-                    raw = self._neuralArabicPCM(sub)
-                    if raw:
-                        self._neuralPlayer.feed(
-                            _resample(np.frombuffer(raw, np.int16),
-                                      out_sr).tobytes())
-                        pause = _punctPause(sub, out_sr, is_arabic=True)
-                        if pause:
-                            self._neuralPlayer.feed(pause)
-                        fed_any = True
+                    units.append((True, sub))
             else:
                 for sub in _englishClauses(seg):
-                    if cancelled():
-                        break
-                    raw, seg_sr = self._englishPCM(sub, pitchOffset)
+                    units.append((False, sub))
+        if not units:
+            return True
+
+        import queue as _q
+        pcmq = _q.Queue(maxsize=4)   # small buffer of ready audio
+
+        def _produce():
+            for is_ar, sub in units:
+                if cancelled():
+                    break
+                try:
+                    if is_ar:
+                        raw = self._neuralArabicPCM(sub)
+                        seg_sr = out_sr
+                        pause = _punctPause(sub, out_sr, is_arabic=True)
+                    else:
+                        raw, seg_sr = self._englishPCM(sub, pitchOffset)
+                        pause = _punctPause(sub, out_sr, is_arabic=False)
                     if raw:
-                        self._neuralPlayer.feed(
-                            _resample(np.frombuffer(raw, np.int16),
-                                      seg_sr).tobytes())
-                        # only pause when the clause actually ENDS with
-                        # punctuation — no artificial breaks mid-sentence
-                        pause = _punctPause(sub, out_sr)
+                        audio = _resample(
+                            np.frombuffer(raw, np.int16), seg_sr).tobytes()
                         if pause:
-                            self._neuralPlayer.feed(pause)
-                        fed_any = True
+                            audio += pause
+                        pcmq.put(audio)
+                except Exception:
+                    pass
+            pcmq.put(None)   # sentinel: production done
+
+        prod = threading.Thread(target=_produce, name="ClaritySynthProd",
+                                daemon=True)
+        prod.start()
+
+        fed_any = False
+        while True:
+            if cancelled():
+                break
+            try:
+                audio = pcmq.get(timeout=5.0)
+            except Exception:
+                break
+            if audio is None:
+                break
+            if cancelled():
+                break
+            self._neuralPlayer.feed(audio)
+            fed_any = True
         if fed_any and not cancelled():
             # small trailing silence so the final consonant is never
             # clipped by the audio device buffer
@@ -982,8 +1010,50 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                     pass
                 synthDoneSpeaking.notify(synth=self)
 
+    def _coalesce(self, items):
+        """Merge runs of adjacent text items that share the same charMode
+        into a single text item, so NVDA's separate UI-field strings are
+        spoken as one continuous utterance (no phantom breaks or delays
+        between them). Index/break commands are preserved in order; any
+        index commands that fell between merged text are attached to the
+        merged item so they still fire after it is queued."""
+        out = []
+        buf = None          # [texts, charMode, pitchOffset, pending_idx]
+        for item in items:
+            if item[0] == "text":
+                _, text, charMode, pitchOffset = item
+                if buf is not None and buf[1] == charMode:
+                    # join with a space only if needed (avoid gluing words)
+                    if buf[0] and not buf[0][-1].endswith((" ",)) \
+                            and not text.startswith(" "):
+                        buf[0].append(" ")
+                    buf[0].append(text)
+                else:
+                    if buf is not None:
+                        out.append(("mtext", "".join(buf[0]), buf[1],
+                                    buf[2], buf[3]))
+                    buf = [[text], charMode, pitchOffset, []]
+            elif item[0] == "index":
+                # keep the index with the current merged text so ordering
+                # is preserved; if no text yet, emit standalone
+                if buf is not None:
+                    buf[3].append(item[1])
+                else:
+                    out.append(item)
+            else:
+                # break or other: flush current text first
+                if buf is not None:
+                    out.append(("mtext", "".join(buf[0]), buf[1],
+                                buf[2], buf[3]))
+                    buf = None
+                out.append(item)
+        if buf is not None:
+            out.append(("mtext", "".join(buf[0]), buf[1], buf[2], buf[3]))
+        return out
+
     def _speakItems(self, items):
         cancelled = self._cancelFlag.is_set
+        items = self._coalesce(items)
         for item in items:
             if cancelled():
                 return
@@ -994,65 +1064,65 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             elif kind == "break":
                 ms = max(10, min(2000, int(item[1])))
                 self._feed(b"\x00\x00" * int(engine.SR * ms / 1000.0))
+            elif kind == "mtext":
+                _, text, charMode, pitchOffset, pending_idx = item
+                # process as a text item, then fire any pending indices
+                self._speakOneText(text, charMode, pitchOffset)
+                for idx in pending_idx:
+                    self._notifyIndex(idx)
             elif kind == "text":
                 _, text, charMode, pitchOffset = item
-                # Neural voice path: split the text into Arabic and
-                # non-Arabic (English, numbers, symbols) runs. Arabic ->
-                # neural voice; everything else -> formant engine. Numbers
-                # attach to the run they sit in. This gives correct
-                # automatic language switching in one utterance.
-                # Single Arabic character in character mode: speak its
-                # Arabic letter-name with the NEURAL voice (not formant).
-                if (self._voice.startswith("neural") and _neuralTTS
-                        and charMode and len(text.strip()) == 1
-                        and any("\u0600" <= c <= "\u06FF"
-                                for c in text.strip())):
-                    nm = _arabicCharName(text.strip())
-                    if nm and self._speakNeural(nm):
-                        continue
-                if (self._voice.startswith("neural") and _neuralTTS
-                        and not charMode
-                        and any("\u0600" <= c <= "\u06FF" for c in text)):
-                    if self._speakMixedNeural(text, pitchOffset):
-                        continue
-                # Pure/mixed English with Piper available: route English
-                # runs to the neural English voice via the SAME gapless,
-                # low-latency streamed path used for mixed text.
-                if (_piperEN and not charMode
-                        and any(c.isalpha() and c < "\u0600" for c in text)):
-                    if self._speakMixedNeural(text, pitchOffset):
-                        continue
-                # Single English/Latin letter in char mode -> neural
-                # English voice, spoken by its letter name (never formant).
-                if (charMode and len(text.strip()) == 1 and _piperEN
-                        and "a" <= text.strip().lower() <= "z"):
-                    if self._speakMixedNeural(_englishLetterName(
-                            text.strip()), pitchOffset):
-                        continue
-                if charMode and len(text.strip()) == 1:
-                    tokens = g2p.char_to_tokens(text.strip())
-                else:
-                    tokens = g2p.text_to_tokens(text)
-                if not tokens:
-                    continue
-                _eng = _bridge.synthesize if _bridge else engine.synthesize
-                gen = _eng(
-                    tokens,
-                    dscale=self._durationScale(),
-                    base_f0=self._baseF0(pitchOffset),
-                    inflection=self._inflectionValue(),
-                    volume=self._volume / 100.0,
-                    is_cancelled=cancelled,
-                    fscale=self._formantScale(),
-                    breath_amt=(_CLONED["breath_amt"]
-                                if self._voice == "cloned" and _CLONED
-                                else self._breathiness / 100.0),
-                    jitter=self._roughness / 100.0 * 0.6,
-                    shimmer=self._roughness / 100.0 * 0.5,
-                    accent=self._stressEmphasis / 50.0,
-                    pause_scale=0.5 + self._pauseLength / 100.0 * 1.4,
-                )
-                for chunk in gen:
-                    if cancelled():
-                        return
-                    self._feed(chunk)
+                self._speakOneText(text, charMode, pitchOffset)
+
+    def _speakOneText(self, text, charMode, pitchOffset):
+        cancelled = self._cancelFlag.is_set
+        # Single Arabic character in character mode -> neural letter name.
+        if (self._voice.startswith("neural") and _neuralTTS
+                and charMode and len(text.strip()) == 1
+                and any("\u0600" <= c <= "\u06FF" for c in text.strip())):
+            nm = _arabicCharName(text.strip())
+            if nm and self._speakNeural(nm):
+                return
+        if (self._voice.startswith("neural") and _neuralTTS
+                and not charMode
+                and any("\u0600" <= c <= "\u06FF" for c in text)):
+            if self._speakMixedNeural(text, pitchOffset):
+                return
+        # Pure/mixed English via the gapless streamed neural path.
+        if (_piperEN and not charMode
+                and any(c.isalpha() and c < "\u0600" for c in text)):
+            if self._speakMixedNeural(text, pitchOffset):
+                return
+        # Single English letter in char mode -> neural voice, letter name.
+        if (charMode and len(text.strip()) == 1 and _piperEN
+                and "a" <= text.strip().lower() <= "z"):
+            if self._speakMixedNeural(_englishLetterName(text.strip()),
+                                      pitchOffset):
+                return
+        if charMode and len(text.strip()) == 1:
+            tokens = g2p.char_to_tokens(text.strip())
+        else:
+            tokens = g2p.text_to_tokens(text)
+        if not tokens:
+            return
+        _eng = _bridge.synthesize if _bridge else engine.synthesize
+        gen = _eng(
+            tokens,
+            dscale=self._durationScale(),
+            base_f0=self._baseF0(pitchOffset),
+            inflection=self._inflectionValue(),
+            volume=self._volume / 100.0,
+            is_cancelled=cancelled,
+            fscale=self._formantScale(),
+            breath_amt=(_CLONED["breath_amt"]
+                        if self._voice == "cloned" and _CLONED
+                        else self._breathiness / 100.0),
+            jitter=self._roughness / 100.0 * 0.6,
+            shimmer=self._roughness / 100.0 * 0.5,
+            accent=self._stressEmphasis / 50.0,
+            pause_scale=0.5 + self._pauseLength / 100.0 * 1.4,
+        )
+        for chunk in gen:
+            if cancelled():
+                return
+            self._feed(chunk)
