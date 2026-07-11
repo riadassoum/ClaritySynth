@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ClaritySynth — Neural Arabic &amp; English Speech Synthesizer for NVDA</title>
+</head>
+<body>
+<h1>ClaritySynth</h1>
+<p><b>A bilingual (Arabic &amp; English) neural speech synthesizer add-on for the NVDA screen reader.</b></p>
+<p>ClaritySynth combines natural neural voices for both Arabic and English, an automatic Arabic diacritizer (tashkeel), full tajweed-aware Arabic phonology, and automatic language switching — all in a single add-on, with a lightweight formant synthesizer included as a separate, always-available fallback.</p>
+
+<h2>Features</h2>
+<ul>
+<li><b>Neural Arabic voices</b> — four natural-sounding Arabic speakers at 22.05&nbsp;kHz (MixerTTS-128 acoustic model with the Vocos vocoder).</li>
+<li><b>Neural English voice</b> — a natural English voice (Piper / VITS), used automatically for English text and the English side of mixed sentences. Phonemization is done directly through the bundled eSpeak NG library, with no heavy dependencies.</li>
+<li><b>Automatic diacritization (tashkeel)</b> — undiacritized Arabic is automatically vocalized before being spoken, using a neural model (Shakkelha) when available, or a large statistical model plus the Mishkal engine as a fallback. Text that is already diacritized is preserved exactly as written.</li>
+<li><b>Automatic language switching</b> — within one sentence, Arabic runs are spoken by the neural Arabic voice and English words, numbers and symbols by the appropriate voice. Numbers next to Arabic are read as Arabic words; numbers in English context are read in English.</li>
+<li><b>Reliable fast speech</b> — raising the rate speeds speech up through pitch-preserving waveform time-compression (WSOLA), so the voices stay clear and never drop or slur phonemes, even at high speed. An optional <b>Rate boost</b> checkbox pushes the top speed much further.</li>
+<li><b>Normalized controls</b> — Rate, Pitch, and Volume behave identically across both languages: the same rate is the same speed, the same volume is the same loudness (RMS-matched), and the Pitch control shifts both voices equally.</li>
+<li><b>Full Arabic phonology</b> — correct tajweed including ra&#700; tafkhim/tarqiq (heavy/light ر), emphatic consonants (ص ض ط ظ), pharyngeals (ح ع), uvulars (ق خ غ), hamzat al-wasl elision (including forms such as الانتخاب → al-intikhāb and بالانتخاب → bi-l-intikhāb), tanween, and context-sensitive taa marbuta (ة).</li>
+<li><b>Character navigation</b> — reading by character announces Arabic letters by their names with the neural voice.</li>
+<li><b>Lightweight formant synthesizer</b> — a separate driver, <b>ClaritySynth Formant</b>, provides three pure-Python formant voices (Adam, Clara, Robby) with no neural models — tiny, fast, and always available.</li>
+</ul>
+
+<h2>Getting started: selecting a voice</h2>
+<ol>
+<li>Open the NVDA menu &gt; Preferences &gt; Settings &gt; Speech (or press <b>NVDA+Ctrl+V</b>).</li>
+<li>Ensure the synthesizer is set to <b>ClaritySynth</b> (use <b>NVDA+Ctrl+S</b> to change synthesizer).</li>
+<li>In the <b>Voice</b> list, choose one of the <b>Arabic Neural</b> voices (Speaker 1–4). Type or read Arabic and it is diacritized and spoken automatically; English and numbers in the same text are handled automatically.</li>
+</ol>
+<p>To use only the small formant voices, choose <b>ClaritySynth Formant</b> from the synthesizer list instead.</p>
+
+<h2>Settings</h2>
+<ul>
+<li><b>Rate</b> — speaking speed. Neural voices stay clear across the whole range.</li>
+<li><b>Rate boost</b> (checkbox, right after Rate) — when enabled, raises the top speed substantially. Speed comes from pitch-preserving time-compression, so phonemes are never dropped.</li>
+<li><b>Pitch, Inflection, Volume</b> — standard controls, applied identically to both neural voices.</li>
+<li><b>Breathiness, Roughness, Head size, Stress emphasis, Pause length</b> — fine control over the formant voice.</li>
+<li><b>Pronounce tanween on isolated words</b> — when on, cited/isolated words sound their tanween instead of using pausal rules.</li>
+<li><b>Use neural Arabic diacritizer if available</b> — toggles the neural tashkeel tier (statistical fallback remains).</li>
+</ul>
+
+<h2>How it works</h2>
+<p>For Arabic text: the text is normalized (tatweel/kashida removed), numbers are spelled out as Arabic words, and — if the text is not already diacritized — each clause is vocalized by the neural Shakkelha model (or the statistical model + Mishkal). The diacritized text is then rendered by the neural acoustic model (MixerTTS-128) and the Vocos vocoder. For English and numbers, text is converted to phonemes directly through eSpeak NG and rendered by the Piper neural voice. All neural audio then passes through a shared, normalized post-processing stage (loudness matching, pitch, and WSOLA time-compression) so both voices sound consistent and can be sped up cleanly.</p>
+
+<h2>Credits and third-party components</h2>
+<p>ClaritySynth is built on the work of many open-source projects, with gratitude:</p>
+<ul>
+<li><b>tts_arabic</b> — Arabic neural TTS packaging (MixerTTS, FastPitch, Vocos, HiFi-GAN in ONNX), by nipponjo. <a href="https://github.com/nipponjo/tts_arabic">github.com/nipponjo/tts_arabic</a> (MIT / respective model licenses).</li>
+<li><b>arabic_vocalizer</b> — ONNX packaging of the Shakkelha and Shakkala diacritizers, by nipponjo. <a href="https://github.com/nipponjo/arabic_vocalizer">github.com/nipponjo/arabic_vocalizer</a> (MIT).</li>
+<li><b>Shakkelha</b> — neural Arabic text diacritization. Ali Fadel, Ibraheem Tuffaha, Bara&#700; Al-Jawarneh, Mahmoud Al-Ayyoub, EMNLP-IJCNLP 2019. <a href="https://github.com/AliOsm/shakkelha">github.com/AliOsm/shakkelha</a> (MIT).</li>
+<li><b>Shakkala</b> — neural Arabic diacritization, by Barqawiz. <a href="https://github.com/Barqawiz/Shakkala">github.com/Barqawiz/Shakkala</a> (MIT).</li>
+<li><b>MixerTTS</b>, <b>FastPitch</b>, <b>HiFi-GAN</b>, <b>Vocos</b> — acoustic models and vocoders (NVIDIA / respective MIT/BSD/Apache licenses).</li>
+<li><b>Piper</b> — neural VITS text-to-speech. rhasspy / OHF-Voice. <a href="https://github.com/OHF-Voice/piper1-gpl">github.com/OHF-Voice/piper1-gpl</a> (MIT). English voice from the Piper voices collection (per its MODEL_CARD; Amy voice trained from data via the Mycroft/mimic3 project).</li>
+<li><b>eSpeak NG</b> — used as the English phonemizer library. <a href="https://github.com/espeak-ng/espeak-ng">github.com/espeak-ng/espeak-ng</a> (GPL-3.0).</li>
+<li><b>Mishkal</b> — Arabic morphological analysis and diacritization, by Taha Zerrouki. <a href="https://github.com/linuxscout/mishkal">github.com/linuxscout/mishkal</a> (GPL).</li>
+<li><b>Tashkeela</b> and the <b>Arabic Text Diacritization</b> corpus — training data for the statistical models. <a href="https://github.com/AliOsm/arabic-text-diacritization">github.com/AliOsm/arabic-text-diacritization</a>.</li>
+<li><b>NV Speech Player</b> — the Klatt-style formant approach behind the optional formant voices. Original by NV Access.</li>
+<li><b>ONNX Runtime</b> and <b>NumPy</b> — neural model inference (MIT / BSD).</li>
+<li>The English grapheme-to-phoneme fallback uses the CMU Pronouncing Dictionary. The formant synthesis engine is an original pure-Python implementation. Arabic phoneme and formant values were informed by published acoustic-phonetics studies of Arabic.</li>
+</ul>
+
+<h2>Author and license</h2>
+<p>ClaritySynth is developed by <b>Riad Assoum</b> — <a href="https://github.com/riadassoum">github.com/riadassoum</a>.</p>
+<p>Released under the GNU General Public License (GPL). Bundled components retain their own licenses as listed above.</p>
+
+<h2>Notes</h2>
+<ul>
+<li>The neural voices require ONNX Runtime, which is bundled for NVDA's Python 3.13 (64-bit). If the neural runtime cannot load (for example due to a conflict with another add-on that bundles a different NumPy), ClaritySynth automatically falls back to the formant voices and writes the reason to the NVDA log.</li>
+<li>The neural models are large; the add-on may take a few seconds to initialize on first load.</li>
+</ul>
+</body>
+</html>
