@@ -36,6 +36,10 @@ This produces `claritySynth-<version>.nvda-addon` in the project root.
 
 ClaritySynth builds on many open-source projects — see the in-app documentation (`addon/doc/en/readme.html`) for the full credits list, including tts_arabic, arabic_vocalizer, Shakkelha, Piper, eSpeak NG, Mishkal, Tashkeela, NV Speech Player, and ONNX Runtime.
 
+## Acknowledgements
+
+Thanks to **Ilyas Dragonoid** for sharing the **NabraTTS** add-on (by **pbt**), from which ClaritySynth bundles the **libtashkeel** engine and the **Rawi ensemble** diacritizer, and on which its Rawi support and parts of its Arabic text cleanup are based.
+
 ## Author
 
 **Riad Assoum** — [github.com/riadassoum](https://github.com/riadassoum)

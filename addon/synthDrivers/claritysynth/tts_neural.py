@@ -86,7 +86,7 @@ def sample_rate():
 
 
 def synth_wave(diacritized_text, speaker=0, pace=1.0, pitch_mul=1.0,
-               pitch_add=0.0, volume=0.9):
+               pitch_add=0.0, volume=0.9, denoise=0.025):
     """Return int16 PCM bytes for diacritized Arabic, or None on failure."""
     if not _try_init():
         return None
@@ -95,6 +95,7 @@ def synth_wave(diacritized_text, speaker=0, pace=1.0, pitch_mul=1.0,
         if speaker not in SPEAKERS:
             speaker = SPEAKERS[0]
         out = _model.infer(diacritized_text, speaker=speaker, pace=pace,
+                           denoise=denoise,
                            volume=volume, pitch_mul=pitch_mul,
                            pitch_add=pitch_add, vowelizer=None)
         wave = out[0] if isinstance(out, tuple) else out

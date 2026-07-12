@@ -1,20 +1,36 @@
-# ClaritySynth v1.1
+# ClaritySynth v1.2
 
-This release focuses on the fluidity and responsiveness of speech, especially when navigating quickly and when Arabic and English appear together.
+This release adds a **choice of Tashkeel (Arabic diacritization) libraries**, improves how Arabic text is cleaned before it is spoken, and fixes a bug that could cut off the end of a sentence.
 
-## Fixes and improvements
+## Choose your Tashkeel library
 
-### Continuous, gap-free speech across UI fields
-NVDA often sends a single line as several separate pieces of text (for example, an item name, its state, and its position: “Blind Temple Run”, “not selected”, “1 of 85”). Previously each piece was synthesized on its own, which produced phantom pauses that sounded like commas that were not there, and small delays between the pieces. These adjacent pieces are now **merged into one continuous utterance**, so the line is spoken smoothly as written — while the corresponding cursor/index positions are still reported correctly.
+A new **Tashkeel library** combo box now sits directly beneath the **Voice** selector in NVDA's speech settings. It lets you choose which engine adds the diacritics (tashkeel) to Arabic text before it is spoken:
 
-### Absolute Arabic/English synchronization
-When Arabic and English alternate within one line (for example, “…GPT-5.6 بعد…”), there was a short delay at each switch between the two voices while the next part was being synthesized. Synthesis now runs **ahead of playback on a background thread**: while one part is being spoken, the next part is already being prepared. The result is seamless switching between Arabic and English with no gap, and the two voices never overlap.
+- **Libtashkeel** (default) — fast and robust.
+- **Rawi ensemble** — a neural diacritizer with very good handling of case endings.
+- **Shakkelha** — the previous default.
+- **Shakkala** — an alternative neural model.
+- **Off** — no automatic diacritization; text is read exactly as written.
 
-### Reliable interruption when moving quickly
-When moving rapidly through items — particularly stopping on a comma or period — the voice could briefly start the next item and then cut off. Interruption is now **immediate and clean**: audio prepared for a cancelled item is discarded at once, so moving quickly no longer produces a false start.
+Only the libraries that load successfully on your machine are offered, and if the one you pick cannot start for any reason, ClaritySynth quietly falls back to another working library rather than failing. Text that already carries diacritics is still respected: existing marks are preserved, and only bare or partially-marked words are completed.
 
-### Natural English phrasing
-The English neural voice no longer inserts an artificial break every few words. English is split only at **real punctuation** (clauses and sentences), so each phrase is spoken whole with correct intonation. Pauses are language-aware: the Arabic neural voice, which does not itself vary timing for punctuation, is given appropriate pauses at commas and clause boundaries, while the English voice relies on its own natural phrasing.
+## Cleaner Arabic reading
+
+Arabic text is now tidied before it is spoken:
+
+- Emoji and decorative runs of symbols (for example `=====`) are no longer read out.
+- Stray symbols are spoken as proper Arabic words — `%` as "بِالْمِئَةِ", `+` as "زَائِد", `=` as "يُسَاوِي", and so on.
+
+Links and English words are deliberately **left alone**: ClaritySynth still announces URLs and speaks English with its own neural English voice, rather than hiding them or reading them with Arabic letters.
+
+## Fixes
+
+### No more clipped endings
+The end of a sentence could be cut off — a final consonant swallowed, or the last moments of a paragraph lost. This happened most noticeably with **Rate boost switched off**. The cause was in the time-scaling that produces fast speech: the final fragment of audio was being blended with the wrong weighting, which halved or erased it, and small rounding errors made the speaking rate drift from what you had set. Both are fixed. Endings are now preserved intact, and the speaking rate is accurate, at every combination of rate, pitch and Rate boost.
 
 ## Notes
-No settings changes are required. Existing configurations continue to work.
+Your existing settings are preserved. The new Tashkeel library selector defaults to Libtashkeel; if you preferred the previous behaviour, choose **Shakkelha** in the combo box.
+
+## Thanks
+
+Special thanks to **Ilyas Dragonoid** for sharing the **NabraTTS** add-on (by **pbt**), from which the **libtashkeel** engine and the **Rawi ensemble** diacritizer are bundled, and on which ClaritySynth's Rawi support and parts of its Arabic text cleanup are based.

@@ -12,11 +12,21 @@ import config
 import nvwave
 import synthDriverHandler
 
+# Setting classes. Newer NVDA exposes these from autoSettingsUtils, older
+# builds from driverHandler. DriverSetting (the combo-box setting) and
+# StringParameterInfo must be imported on BOTH paths, or the class body of
+# SynthDriver raises NameError at import time and the driver never registers.
 try:
     from autoSettingsUtils.driverSetting import (NumericDriverSetting,
-                                                  BooleanDriverSetting)
+                                                 BooleanDriverSetting,
+                                                 DriverSetting)
 except ImportError:
-    from driverHandler import NumericDriverSetting, BooleanDriverSetting
+    from driverHandler import (NumericDriverSetting, BooleanDriverSetting,
+                               DriverSetting)
+try:
+    from autoSettingsUtils.utils import StringParameterInfo
+except ImportError:
+    from driverHandler import StringParameterInfo
 from synthDriverHandler import VoiceInfo, synthIndexReached, synthDoneSpeaking
 from logHandler import log
 
@@ -123,13 +133,17 @@ def _classifyChar(ch):
     return "neutral"
 
 
-def _punctPause(text, sr, is_arabic=False):
+def _punctPause(text, sr, is_arabic=False, scale=1.0):
     """Return trailing silence for the punctuation ENDING this chunk.
 
     The neural ARABIC model flattens ALL punctuation, so Arabic needs
     explicit pauses at commas/colons AND sentence enders. The English
     (Piper) voice renders its own clause phrasing, so English only gets a
-    small extra pause at sentence enders to avoid doubling up."""
+    small extra pause at sentence enders to avoid doubling up.
+
+    `scale` comes from the user's "Pause length" setting: 0 removes the
+    added pauses entirely, 1.0 is the default, and higher values lengthen
+    them."""
     t = text.rstrip()
     if not t:
         return b""
@@ -144,11 +158,17 @@ def _punctPause(text, sr, is_arabic=False):
         else:
             return b""
     else:
-        if last in ".!?":                    # English: sentence enders only
+        if last in ".!?":                    # English: sentence enders
             ms = 0.13
+        elif last in ",;:":                  # English: clause punctuation
+            ms = 0.05
         else:
             return b""
-    return b"\x00\x00" * int(sr * ms)
+    ms *= max(0.0, scale)
+    n = int(sr * ms)
+    if n <= 0:
+        return b""
+    return b"\x00\x00" * n
 
 
 def _englishClauses(text):
@@ -197,17 +217,75 @@ def _wordGroups(text, n=8):
         i += n
 
 
+# --- English character names, as exact IPA -----------------------------------
+# We give Piper the PHONEMES directly instead of a spelled-out word, because
+# eSpeak's letter-to-sound rules mangle short pseudo-words: "ay" came out as
+# /ˈaɪ/ ("eye") instead of /ˈeɪ/, and "eff" as /ˌiːˌɛfˈɛf/ ("ee-eff-eff").
+# Every symbol below is present in the Piper voice's phoneme map.
+_EN_LETTER_IPA = {
+    "a": "ˈeɪ",   "b": "bˈiː",  "c": "sˈiː",  "d": "dˈiː",  "e": "ˈiː",
+    "f": "ˈɛf",   "g": "dʒˈiː", "h": "ˈeɪtʃ", "i": "ˈaɪ",   "j": "dʒˈeɪ",
+    "k": "kˈeɪ",  "l": "ˈɛl",   "m": "ˈɛm",   "n": "ˈɛn",   "o": "ˈoʊ",
+    "p": "pˈiː",  "q": "kjˈuː", "r": "ˈɑːɹ",  "s": "ˈɛs",   "t": "tˈiː",
+    "u": "jˈuː",  "v": "vˈiː",  "w": "dˈʌbəljˌuː", "x": "ˈɛks",
+    "y": "wˈaɪ",  "z": "zˈiː",
+}
+
+_EN_DIGIT_IPA = {
+    "0": "zˈiəɹoʊ", "1": "wˈʌn",   "2": "tˈuː",   "3": "θɹˈiː",
+    "4": "fˈɔːɹ",   "5": "fˈaɪv",  "6": "sˈɪks",  "7": "sˈɛvən",
+    "8": "ˈeɪt",    "9": "nˈaɪn",
+}
+
+# Punctuation / symbols spoken by name (plain words; eSpeak handles these
+# reliably, so we phonemize them at runtime rather than hard-coding IPA).
+_EN_SYMBOL_WORD = {
+    " ": "space",        ".": "dot",          ",": "comma",
+    ";": "semicolon",    ":": "colon",        "?": "question",
+    "!": "exclamation",  "'": "apostrophe",   '"': "quote",
+    "-": "dash",         "_": "underscore",   "/": "slash",
+    "\\": "backslash",   "|": "bar",          "@": "at",
+    "#": "number",       "$": "dollar",       "%": "percent",
+    "^": "caret",        "&": "and",          "*": "star",
+    "(": "left paren",   ")": "right paren",  "[": "left bracket",
+    "]": "right bracket", "{": "left brace",  "}": "right brace",
+    "<": "less than",    ">": "greater than", "=": "equals",
+    "+": "plus",         "~": "tilde",        "`": "backtick",
+}
+
+
+def _englishCharIPA(ch):
+    """Exact IPA for a single English letter or digit, or None."""
+    if not ch:
+        return None
+    low = ch.lower()
+    if low in _EN_LETTER_IPA:
+        return _EN_LETTER_IPA[low]
+    if ch in _EN_DIGIT_IPA:
+        return _EN_DIGIT_IPA[ch]
+    return None
+
+
+def _englishCharWord(ch):
+    """Spoken word for a punctuation/symbol character, or None."""
+    return _EN_SYMBOL_WORD.get(ch)
+
+
+def _isEnglishChar(ch):
+    """True if this single character should be spoken by the ENGLISH neural
+    voice in character mode (letter, digit, punctuation or symbol)."""
+    if not ch:
+        return False
+    return (_englishCharIPA(ch) is not None
+            or _englishCharWord(ch) is not None)
+
+
 def _englishLetterName(ch):
-    """Spoken name of a single English letter for the neural voice."""
-    names = {
-        "a": "ay", "b": "bee", "c": "see", "d": "dee", "e": "ee",
-        "f": "eff", "g": "jee", "h": "aitch", "i": "eye", "j": "jay",
-        "k": "kay", "l": "ell", "m": "em", "n": "en", "o": "oh",
-        "p": "pee", "q": "cue", "r": "arr", "s": "ess", "t": "tee",
-        "u": "you", "v": "vee", "w": "double you", "x": "eks",
-        "y": "why", "z": "zee",
-    }
-    return names.get(ch.lower(), ch)
+    """Back-compat: a spoken name for a single English character."""
+    low = ch.lower()
+    if low in _EN_LETTER_IPA:
+        return low
+    return _EN_SYMBOL_WORD.get(ch, ch)
 
 
 def _arabicCharName(ch):
@@ -347,6 +425,11 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 
     supportedSettings = (
         synthDriverHandler.SynthDriver.VoiceSetting(),
+        DriverSetting("tashkeel",
+                      _("&Tashkeel library (Arabic diacritization)"),
+                      availableInSettingsRing=True,
+                      defaultVal="libtashkeel",
+                      displayName=_("Tashkeel library")),
         synthDriverHandler.SynthDriver.RateSetting(),
         BooleanDriverSetting("rateBoost",
                              _("Rate boo&st (extra-fast speech)"),
@@ -364,6 +447,9 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                              defaultVal=50, availableInSettingsRing=True),
         NumericDriverSetting("stressEmphasis", _("Stress &emphasis"),
                              defaultVal=50, availableInSettingsRing=True),
+        NumericDriverSetting("clarity",
+                             _("&Clarity (noise reduction)"),
+                             defaultVal=5, minStep=1),
         NumericDriverSetting("pauseLength", _("Pause &length"),
                              defaultVal=40, availableInSettingsRing=True),
         BooleanDriverSetting("tanweenPause",
@@ -399,9 +485,16 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._headSize = 50
         self._stressEmphasis = 50
         self._pauseLength = 40
+        self._clarity = 5          # -> denoise strength 0.025 (see _denoise)
         self._tanweenPause = False
         self._neuralArabic = True
         self._rateBoost = False
+        # default tashkeel backend (libtashkeel, with automatic fallback)
+        try:
+            from . import ar_tashkeel
+            ar_tashkeel.set_backend(ar_tashkeel.DEFAULT_BACKEND)
+        except Exception:
+            pass
         self._cancelFlag = threading.Event()
         self._gen = 0            # bumped on each cancel; guards stale audio
         self._queue = queue.Queue()
@@ -545,11 +638,69 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     def _set_stressEmphasis(self, value):
         self._stressEmphasis = max(0, min(100, value))
 
+    def _get_clarity(self):
+        return self._clarity
+
+    def _set_clarity(self, value):
+        self._clarity = max(0, min(100, int(value)))
+
+    def _denoise(self):
+        """Map the Clarity setting (0..100) to the vocoder's denoise
+        strength. 5 -> 0.025, which is the value the NabraTTS add-on uses
+        and which audibly lowers the noise floor of the Arabic voice."""
+        return self._clarity / 200.0
+
+    def _pauseScale(self):
+        """Map the Pause length setting (0..100, default 40) to a multiplier
+        for the pauses inserted between neural clauses. 0 -> no added
+        pauses, 40 -> 1.0 (default), 100 -> 2.5x."""
+        return (self._pauseLength / 40.0) if self._pauseLength <= 40 else \
+            (1.0 + (self._pauseLength - 40) / 60.0 * 1.5)
+
     def _get_pauseLength(self):
         return self._pauseLength
 
     def _set_pauseLength(self, value):
         self._pauseLength = max(0, min(100, value))
+
+    def _get_availableTashkeels(self):
+        """Populate the Tashkeel combo box with the libraries that actually
+        load on this machine (a backend whose binary/model is missing is
+        simply not offered)."""
+        labels = {
+            "libtashkeel": _("Libtashkeel (recommended)"),
+            "rawi": _("Rawi ensemble"),
+            "shakkelha": _("Shakkelha"),
+            "shakkala": _("Shakkala"),
+            "off": _("Off (read text as written)"),
+        }
+        out = OrderedDict()
+        try:
+            from . import ar_tashkeel
+            names = ar_tashkeel.available()
+        except Exception:
+            names = ["off"]
+        for n in names:
+            out[n] = StringParameterInfo(n, labels.get(n, n))
+        if not out:
+            out["off"] = StringParameterInfo("off", labels["off"])
+        return out
+
+    def _get_tashkeel(self):
+        try:
+            from . import ar_tashkeel
+            return ar_tashkeel.get_backend()
+        except Exception:
+            return "off"
+
+    def _set_tashkeel(self, value):
+        try:
+            from . import ar_tashkeel, ar_g2p
+            ar_tashkeel.set_backend(value)
+            # keep the legacy neural flag in step with the selection
+            ar_g2p._NEURAL_ON = (value != "off")
+        except Exception:
+            pass
 
     def _get_rateBoost(self):
         return self._rateBoost
@@ -795,10 +946,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                     if is_ar:
                         raw = self._neuralArabicPCM(sub)
                         seg_sr = out_sr
-                        pause = _punctPause(sub, out_sr, is_arabic=True)
+                        pause = _punctPause(sub, out_sr, is_arabic=True,
+                                            scale=self._pauseScale())
                     else:
                         raw, seg_sr = self._englishPCM(sub, pitchOffset)
-                        pause = _punctPause(sub, out_sr, is_arabic=False)
+                        pause = _punctPause(sub, out_sr, is_arabic=False,
+                                            scale=self._pauseScale())
                     if raw:
                         audio = _resample(
                             np.frombuffer(raw, np.int16), seg_sr).tobytes()
@@ -847,6 +1000,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             except ValueError:
                 spk = 0
         try:
+            if hasattr(ar_g2p, "clean_arabic_text"):
+                seg = ar_g2p.clean_arabic_text(seg) or seg
             diac = ar_g2p._neural_pre(seg) if hasattr(ar_g2p,
                                                       "_neural_pre") else seg
         except Exception:
@@ -860,7 +1015,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             if self._cancelFlag.is_set():
                 break
             pcm = _neuralTTS.synth_wave(
-                chunk, speaker=spk, pace=1.0, pitch_mul=1.0, volume=1.0)
+                chunk, speaker=spk, pace=1.0, pitch_mul=1.0, volume=1.0,
+                denoise=self._denoise())
             if pcm and timescale:
                 sr = _neuralTTS.sample_rate()
                 pcm = timescale.normalize_rms(pcm)
@@ -882,7 +1038,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         if _piperEN and any(c.isalpha() for c in seg):
             try:
                 ls = self._neuralLengthScale()
-                pcm = _piperEN.synth_wave(seg, length_scale=ls, volume=1.0)
+                pcm = _piperEN.synth_wave(seg, length_scale=ls, volume=1.0,
+                                          clarity=self._clarity)
                 if pcm:
                     sr = _piperEN.sample_rate()
                     if timescale:
@@ -1074,6 +1231,53 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 _, text, charMode, pitchOffset = item
                 self._speakOneText(text, charMode, pitchOffset)
 
+    def _feedNeural(self, pcm, sr):
+        """Feed PCM to the neural player, re-creating it if the sample rate
+        changed, and pad a little trailing silence so the audio device never
+        clips the final consonant."""
+        if not pcm:
+            return
+        if getattr(self, "_neuralSR", None) != sr:
+            self._neuralPlayer = nvwave.WavePlayer(
+                channels=1, samplesPerSec=sr, bitsPerSample=16)
+            self._neuralSR = sr
+        self._neuralPlayer.feed(pcm)
+        self._neuralPlayer.feed(b"\x00\x00" * int(sr * 0.05))
+        self._neuralPlayer.idle()
+
+    def _speakEnglishChar(self, ch, pitchOffset=0):
+        """Speak ONE English character with the neural voice. Letters and
+        digits are rendered from exact IPA (eSpeak's rules mispronounce
+        single letter names); punctuation is spoken by name. Returns True
+        if it was handled."""
+        if not _piperEN:
+            return False
+        try:
+            from . import timescale
+        except Exception:
+            timescale = None
+        ipa = _englishCharIPA(ch)
+        word = None if ipa else _englishCharWord(ch)
+        if not ipa and not word:
+            return False
+        try:
+            pcm = _piperEN.synth_wave(
+                word or "", length_scale=self._neuralLengthScale(),
+                volume=1.0, phonemes=ipa)
+            if not pcm:
+                return False
+            sr = _piperEN.sample_rate()
+            if timescale:
+                pcm = timescale.normalize_rms(pcm)
+                pcm = timescale.pitch_shift_pcm(
+                    pcm, self._pitchSemitones(pitchOffset), sr)
+                pcm = timescale.compress_pcm(pcm, self._speedFactor(), sr)
+                pcm = timescale.apply_gain(pcm, self._volume / 100.0)
+            self._feedNeural(pcm, sr)
+            return True
+        except Exception:
+            return False
+
     def _speakOneText(self, text, charMode, pitchOffset):
         cancelled = self._cancelFlag.is_set
         # Single Arabic character in character mode -> neural letter name.
@@ -1093,11 +1297,22 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 and any(c.isalpha() and c < "\u0600" for c in text)):
             if self._speakMixedNeural(text, pitchOffset):
                 return
-        # Single English letter in char mode -> neural voice, letter name.
-        if (charMode and len(text.strip()) == 1 and _piperEN
-                and "a" <= text.strip().lower() <= "z"):
-            if self._speakMixedNeural(_englishLetterName(text.strip()),
-                                      pitchOffset):
+        # Single English character in char mode -> ALWAYS the neural English
+        # voice (letters, digits, punctuation and symbols alike). Nothing
+        # here may fall through to the formant engine.
+        if charMode and _piperEN:
+            ch = text.strip()
+            if len(ch) == 1:
+                if self._speakEnglishChar(ch, pitchOffset):
+                    return
+                # Any other single character (currency, bullets, arrows...):
+                # let the neural voice name it rather than dropping to the
+                # formant engine.
+                if self._speakMixedNeural(ch, pitchOffset):
+                    return
+                return          # nothing sensible to say; stay silent
+            # a bare space still needs announcing
+            if text and not ch and self._speakEnglishChar(" ", pitchOffset):
                 return
         if charMode and len(text.strip()) == 1:
             tokens = g2p.char_to_tokens(text.strip())

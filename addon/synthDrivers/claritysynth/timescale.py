@@ -25,7 +25,7 @@ def compress_pcm(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
     if n < fl * 3:
         return pcm_bytes                      # too short to bother
     hop_s = fl // 2                           # output hop (analysis frame /2)
-    hop_a = int(hop_s * factor)               # input hop
+    hop_a_f = hop_s * float(factor)           # ideal input hop (fractional)
     seek = int(sr * seek_ms / 1000.0)
     win = np.hanning(fl).astype(np.float32)
 
@@ -35,6 +35,8 @@ def compress_pcm(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
 
     ia = 0
     io = 0
+    consumed = 0
+    ideal = 0.0        # exact (fractional) input position; prevents drift
     prev_tail = np.zeros(hop_s, dtype=np.float32)
     while ia + fl < n and io + fl < out_len:
         # WSOLA: within +/- seek of ia, find the frame head whose samples
@@ -58,28 +60,45 @@ def compress_pcm(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
             break
         out[io:io + fl] += seg * win
         ow[io:io + fl] += win
+        if ia + fl > consumed:
+            consumed = ia + fl      # high-water mark of input used
         te = ia + hop_s
         if te + hop_s <= n:
             prev_tail = x[te:te + hop_s].copy()
         else:
             prev_tail = np.zeros(hop_s, dtype=np.float32)
-        ia += hop_a
+        ideal += hop_a_f
+        ia = int(ideal)          # exact rate; no accumulated rounding error
         io += hop_s
 
-    # Append any remaining tail (the loop stops when < one frame is left,
-    # which would otherwise drop the final consonant). Add the leftover
-    # input samples from the last analysis point onward.
-    if ia < n:
-        tail = x[ia:]
-        if tail.size:
-            end = min(io + tail.size, out.size)
-            k = end - io
-            out[io:end] += tail[:k]
-            ow[io:end] += 1.0
-            io = end
-
+    # Normalize the overlap-added region FIRST, then append the leftover
+    # tail as clean, unweighted audio. Doing it in this order avoids the
+    # bug where the tail was divided by the window weights of the last
+    # frame (which halved the final consonant's amplitude).
     ow[ow < 1e-6] = 1.0
-    y = (out / ow)[:io]
+    y = (out / ow)[:io + fl]
+
+    # `consumed` = furthest input sample already represented in the output.
+    # WSOLA's similarity search can move `ia` backwards, so we must use the
+    # high-water mark, not the final `ia`, or we would repeat audio.
+    tail = x[consumed:] if consumed < n else None
+    if tail is not None and tail.size:
+        # The last frame's window tapers to zero at io+fl. Splice the tail
+        # in starting where the reconstruction is still at full amplitude
+        # (io + hop_s), and cross-fade over the overlap so there is no click.
+        splice = io + hop_s
+        if splice > y.size:
+            splice = y.size
+        head = y[:splice]
+        xf = min(hop_s // 2, tail.size, head.size)
+        if xf > 0:
+            ramp = np.linspace(0.0, 1.0, xf, dtype=np.float32)
+            head = head.copy()
+            head[-xf:] = head[-xf:] * (1.0 - ramp) + tail[:xf] * ramp
+            y = np.concatenate([head, tail[xf:]])
+        else:
+            y = np.concatenate([head, tail])
+
     m = float(np.max(np.abs(y))) or 1.0
     if m > 32767.0:
         y = y * (32767.0 / m)
@@ -130,18 +149,32 @@ def pitch_shift_pcm(pcm_bytes, semitones, sr):
         out = _time_stretch(yb, orig_len / cur_len, sr)
     else:
         out = compress_pcm(yb, cur_len / orig_len, sr)
-    # enforce EXACT original length (pad with silence or trim) so pitch
-    # shifting never changes duration — keeps voices in sync, no drift.
+    # Keep duration stable, but NEVER hard-trim: cutting to orig_len would
+    # chop the final consonant if the stretch overshot slightly. Pad when
+    # short; when long, only trim TRAILING NEAR-SILENCE, never real audio.
     o = np.frombuffer(out, dtype=np.int16)
     if o.size < orig_len:
         o = np.concatenate([o, np.zeros(orig_len - o.size, dtype=np.int16)])
     elif o.size > orig_len:
-        o = o[:orig_len]
+        excess = o[orig_len:]
+        # if everything past orig_len is essentially silent, drop it;
+        # otherwise keep the audio (a few ms longer is harmless, a cut is not)
+        if excess.size and int(np.max(np.abs(excess.astype(np.int32)))) < 300:
+            o = o[:orig_len]
     return o.tobytes()
 
 
 def _time_stretch(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
-    """WSOLA stretch (factor>1 = LONGER/slower). Mirror of compress."""
+    """WSOLA time-stretch (factor > 1 = LONGER / slower). Mirror of
+    compress_pcm. Preserves pitch; only duration changes.
+
+    Two correctness details that matter for speech:
+      * the input position is accumulated as a FLOAT, so integer rounding
+        never accumulates and the output length is exact;
+      * the leftover tail is spliced in AFTER overlap-add normalization,
+        so it is never divided by the last frame's window weights (which
+        previously halved or erased the final consonant).
+    """
     import numpy as np
     if factor is None or abs(factor - 1.0) < 0.02 or not pcm_bytes:
         return pcm_bytes
@@ -150,16 +183,22 @@ def _time_stretch(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
     fl = max(96, int(sr * frame_ms / 1000.0))
     if n < fl * 3:
         return pcm_bytes
-    hop_s = fl // 2
-    hop_a = max(1, int(hop_s / factor))     # smaller input hop -> longer out
+
+    hop_s = fl // 2                      # output hop
+    hop_a_f = hop_s / float(factor)      # ideal (fractional) input hop
     seek = int(sr * seek_ms / 1000.0)
     win = np.hanning(fl).astype(np.float32)
-    out_len = int(n * factor) + fl * 4
+
+    out_len = int(n * max(1.0, factor)) + fl * 8
     out = np.zeros(out_len, dtype=np.float32)
     ow = np.zeros(out_len, dtype=np.float32)
+
     ia = 0
     io = 0
+    consumed = 0
+    ideal = 0.0
     prev_tail = np.zeros(hop_s, dtype=np.float32)
+
     while ia + fl < n and io + fl < out_len:
         if seek > 0 and prev_tail.any():
             lo = max(0, ia - seek)
@@ -179,21 +218,31 @@ def _time_stretch(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
             break
         out[io:io + fl] += seg * win
         ow[io:io + fl] += win
+        if ia + fl > consumed:
+            consumed = ia + fl
         te = ia + hop_s
-        prev_tail = x[te:te + hop_s].copy() if te + hop_s <= n \
-            else np.zeros(hop_s, dtype=np.float32)
-        ia += hop_a
+        prev_tail = (x[te:te + hop_s].copy() if te + hop_s <= n
+                     else np.zeros(hop_s, dtype=np.float32))
+        ideal += hop_a_f
+        ia = int(ideal)
         io += hop_s
-    if ia < n:
-        tail = x[ia:]
-        if tail.size:
-            end = min(io + tail.size, out.size)
-            k = end - io
-            out[io:end] += tail[:k]
-            ow[io:end] += 1.0
-            io = end
+
     ow[ow < 1e-6] = 1.0
-    y = (out / ow)[:io]
+    y = (out / ow)[:io + fl]
+
+    tail = x[consumed:] if consumed < n else None
+    if tail is not None and tail.size:
+        splice = min(io + hop_s, y.size)
+        head = y[:splice]
+        xf = min(hop_s // 2, tail.size, head.size)
+        if xf > 0:
+            ramp = np.linspace(0.0, 1.0, xf, dtype=np.float32)
+            head = head.copy()
+            head[-xf:] = head[-xf:] * (1.0 - ramp) + tail[:xf] * ramp
+            y = np.concatenate([head, tail[xf:]])
+        else:
+            y = np.concatenate([head, tail])
+
     m = float(np.max(np.abs(y))) or 1.0
     if m > 32767.0:
         y = y * (32767.0 / m)

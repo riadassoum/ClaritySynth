@@ -177,16 +177,21 @@ class _PiperRunner(object):
         ids.extend(self.pmap.get(self._EOS, []))
         return ids
 
-    def synth(self, text, length_scale=None):
+    def synth(self, text, length_scale=None, phonemes=None,
+              noise_scale=None, noise_w=None):
         import numpy as np
-        phon = _phonemize(text)
+        # `phonemes` lets the caller supply exact IPA (character mode), which
+        # avoids eSpeak mis-guessing short pseudo-words like "ay"/"eff".
+        phon = phonemes if phonemes else _phonemize(text)
         ids = self._ids(phon)
         if not ids:
             return None, _sr
         ls = length_scale or self.length_scale
         x = np.array([ids], dtype=np.int64)
         x_len = np.array([x.shape[1]], dtype=np.int64)
-        scales = np.array([self.noise_scale, ls, self.noise_w],
+        ns = self.noise_scale if noise_scale is None else noise_scale
+        nw = self.noise_w if noise_w is None else noise_w
+        scales = np.array([ns, ls, nw],
                           dtype=np.float32)
         feed = {"input": x, "input_lengths": x_len, "scales": scales}
         if "sid" in self.in_names and self.n_speakers > 1:
@@ -196,16 +201,64 @@ class _PiperRunner(object):
         return out.squeeze(), _sr
 
 
+from collections import OrderedDict as _OD
+
+_CACHE = _OD()
+_CACHE_MAX = 64          # entries; short strings only, so memory is small
+_CACHE_MAXLEN = 48       # only cache strings up to this many characters
+_cache_lock = threading.Lock()
+
+
+def _cache_get(key):
+    with _cache_lock:
+        v = _CACHE.get(key)
+        if v is not None:
+            _CACHE.move_to_end(key)     # LRU
+        return v
+
+
+def _cache_put(key, val):
+    with _cache_lock:
+        _CACHE[key] = val
+        _CACHE.move_to_end(key)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+
+
+def clear_cache():
+    with _cache_lock:
+        _CACHE.clear()
+
+
 def sample_rate():
     return _sr
 
 
-def synth_wave(text, length_scale=None, volume=1.0):
+def synth_wave(text, length_scale=None, volume=1.0, phonemes=None,
+               clarity=None):
+    """Synthesize `text`, or — if `phonemes` is given — render that exact IPA
+    string directly (used for single characters, where eSpeak's G2P is
+    unreliable)."""
     if not _try_init():
         return None
+    key = None
+    if text and len(text) <= _CACHE_MAXLEN and phonemes is None:
+        key = (text, length_scale, volume, clarity)
+        hit = _cache_get(key)
+        if hit is not None:
+            return hit
     try:
         import numpy as np
-        audio, sr = _piper.synth(text, length_scale=length_scale)
+        # `clarity` (0..100) reduces the model's stochastic noise, which
+        # audibly cleans the voice up. None/0 = the model's own defaults.
+        ns = nw = None
+        if clarity:
+            k = max(0.0, min(1.0, clarity / 100.0))
+            ns = _piper.noise_scale * (1.0 - 0.5 * k)
+            nw = _piper.noise_w * (1.0 - 0.5 * k)
+        audio, sr = _piper.synth(text, length_scale=length_scale,
+                                 phonemes=phonemes,
+                                 noise_scale=ns, noise_w=nw)
         if audio is None:
             return None
         a = np.asarray(audio, dtype=np.float32)
@@ -215,6 +268,9 @@ def synth_wave(text, length_scale=None, volume=1.0):
         if m > 1.0:
             a = a / m
         a = a * volume
-        return (a * 32000.0).astype(np.int16).tobytes()
+        pcm = (a * 32000.0).astype(np.int16).tobytes()
+        if key is not None and pcm:
+            _cache_put(key, pcm)
+        return pcm
     except Exception:
         return None

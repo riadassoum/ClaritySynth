@@ -33,6 +33,9 @@
 <h2>Settings</h2>
 <ul>
 <li><b>Rate</b> — speaking speed. Neural voices stay clear across the whole range.</li>
+<li><b>Tashkeel library</b> (combo box, right after Voice) &mdash; choose which engine adds Arabic diacritics: <b>Libtashkeel</b> (default), <b>Rawi ensemble</b>, <b>Shakkelha</b>, <b>Shakkala</b>, or <b>Off</b> to read text exactly as written. If the chosen library cannot load, another working one is used automatically.</li>
+<li><b>Clarity (noise reduction)</b> &mdash; reduces the faint hiss the neural models produce. It cleans up <i>both</i> voices: for Arabic it drives the vocoder's denoiser, for English it lowers the model's stochastic noise. The default (5) matches the setting used by NabraTTS; raise it for a cleaner, smoother voice.</li>
+<li><b>Pause length</b> &mdash; now applies to the neural voices as well: it lengthens or shortens the pauses inserted at commas, colons and sentence ends. Set it to 0 to remove the added pauses entirely.</li>
 <li><b>Rate boost</b> (checkbox, right after Rate) — when enabled, raises the top speed substantially. Speed comes from pitch-preserving time-compression, so phonemes are never dropped.</li>
 <li><b>Pitch, Inflection, Volume</b> — standard controls, applied identically to both neural voices.</li>
 <li><b>Breathiness, Roughness, Head size, Stress emphasis, Pause length</b> — fine control over the formant voice.</li>
@@ -55,6 +58,7 @@
 <li><b>eSpeak NG</b> — used as the English phonemizer library. <a href="https://github.com/espeak-ng/espeak-ng">github.com/espeak-ng/espeak-ng</a> (GPL-3.0).</li>
 <li><b>Mishkal</b> — Arabic morphological analysis and diacritization, by Taha Zerrouki. <a href="https://github.com/linuxscout/mishkal">github.com/linuxscout/mishkal</a> (GPL).</li>
 <li><b>Tashkeela</b> and the <b>Arabic Text Diacritization</b> corpus — training data for the statistical models. <a href="https://github.com/AliOsm/arabic-text-diacritization">github.com/AliOsm/arabic-text-diacritization</a>.</li>
+<li><b>libtashkeel</b> and the <b>Rawi ensemble</b> diacritizer &mdash; bundled from the <b>NabraTTS</b> NVDA add-on by <b>pbt</b>, generously shared by <b>Ilyas Dragonoid</b>. The Rawi vowelizer code in ClaritySynth is adapted from that add-on.</li>
 <li><b>NV Speech Player</b> — the Klatt-style formant approach behind the optional formant voices. Original by NV Access.</li>
 <li><b>ONNX Runtime</b> and <b>NumPy</b> — neural model inference (MIT / BSD).</li>
 <li>The English grapheme-to-phoneme fallback uses the CMU Pronouncing Dictionary. The formant synthesis engine is an original pure-Python implementation. Arabic phoneme and formant values were informed by published acoustic-phonetics studies of Arabic.</li>

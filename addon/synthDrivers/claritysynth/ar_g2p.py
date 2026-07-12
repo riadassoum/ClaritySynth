@@ -971,6 +971,85 @@ def _spell_numbers_ar(text):
                   repl, text)
 
 
+# --- Arabic text cleanup (symbol names, emoji, noise) -----------------------
+# Symbol names are pre-diacritized so the neural voice reads them correctly.
+# Adapted from the NabraTTS add-on (author "pbt"), shared by Ilyas Dragonoid.
+_AR_SYMBOL_MAP = {
+    "+": " زَائِد ",
+    "*": " ضَرْب ",
+    "=": " يُسَاوِي ",
+    ">": " أَكْبَرُ مِنْ ",
+    "<": " أَصْغَرُ مِنْ ",
+    "%": " بِالْمِئَةِ ",
+    "$": " دُولَار ",
+    "\u20ac": " يُورُو ",
+    "\u00a3": " جُنَيْه ",
+    "&": " وَ ",
+    "|": " خَطٌّ عَمُودِيّ ",
+    "~": " تَقْرِيبًا ",
+}
+
+_AR_EMOJI_RE = re.compile(
+    "[\U00002600-\U000027BF"
+    "\U0001F300-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\u200d\u200c\ufeff"
+    "\u2066-\u2069]+",
+    flags=re.UNICODE,
+)
+# runs of repeated decoration characters ("=====", "-----", "***")
+_AR_NOISE_RE = re.compile(r"[-_=*~`|\\<>{}]{3,}")
+_AR_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
+
+
+def clean_arabic_text(text):
+    """Tidy an Arabic run before diacritization/synthesis: drop emoji and
+    decorative runs, and speak stray symbols as Arabic words. URLs and
+    English words are intentionally left alone — ClaritySynth speaks them
+    with its English voice instead of hiding or transliterating them."""
+    if not text:
+        return text
+    text = _AR_NOISE_RE.sub(" ", text)
+    text = _AR_EMOJI_RE.sub(" ", text)
+    for sym, word in _AR_SYMBOL_MAP.items():
+        if sym in text:
+            text = text.replace(sym, word)
+    text = _AR_MULTISPACE_RE.sub(" ", text)
+    return text.strip()
+
+
+
+
+def _strip_marks(s):
+    """Remove Arabic diacritics (keeping the letters) for comparison."""
+    return "".join(c for c in s
+                   if not ("\u064B" <= c <= "\u0652" or c == "\u0670"))
+
+def _diacritize(text):
+    """Diacritize using the user's chosen tashkeel library (libtashkeel,
+    Rawi, Shakkelha, Shakkala) with automatic fallback."""
+    try:
+        from . import ar_tashkeel
+    except ImportError:
+        try:
+            import ar_tashkeel
+        except Exception:
+            ar_tashkeel = None
+    except Exception:
+        ar_tashkeel = None
+    if ar_tashkeel is not None:
+        try:
+            out = ar_tashkeel.diacritize_text(text)
+            if out:
+                return out
+        except Exception:
+            pass
+    # legacy fallback
+    try:
+        return ar_neural.diacritize_text(text)
+    except Exception:
+        return None
+
 def _neural_pre(text):
     """If the neural diacritizer is available, vocalize the whole text
     first (full-context inference). Returns diacritized text or original."""
@@ -1000,33 +1079,50 @@ def _neural_pre(text):
         # (under ~25% marked). We still spell numbers either way.
         already_vocalized = letters > 0 and marks >= letters * 0.25
         if has_ar and already_vocalized:
-            # Keep the human's diacritics, but diacritize any WORDS that
-            # are still completely bare (e.g. الله، وقال، البقرة in an
-            # otherwise-vocalized passage). Marked words are untouched.
+            # Keep the human's diacritics, but fill in words that are still
+            # bare or badly under-marked.
+            #
+            # IMPORTANT: diacritize the WHOLE CLAUSE in one pass and take
+            # only the words we need from it. Diacritizing an isolated word
+            # starves the model of context — Rawi in particular then drops
+            # hamza (سأل -> سَالْ, وقرأ -> وَقَرَا, وائل -> وَأَيْلَ). With the
+            # full clause it places every hamza correctly.
             try:
                 import re as _re
-                out_words = []
-                for tok in _re.split(r"(\s+)", clean):
+                toks = _re.split(r"(\s+)", clean)
+                need = []
+                for i, tok in enumerate(toks):
                     if not tok or tok.isspace():
-                        out_words.append(tok)
                         continue
                     wl = sum(1 for c in tok if "\u0621" <= c <= "\u064A")
                     wm = sum(1 for c in tok if "\u064B" <= c <= "\u0652")
-                    # A well-diacritized word has a mark after most letters.
-                    # Re-vocalize words that are bare OR clearly under-marked
-                    # (missing most vowels), which sound wrong otherwise
-                    # (e.g. أُسامة 1/5, رسولَ 1/4). Adequately-marked words
-                    # are kept exactly as the source wrote them.
                     if wl >= 2 and wm < wl * 0.4:
-                        dd = ar_neural.diacritize_text(tok)
-                        # only accept if it actually added marks
-                        if dd and sum(1 for c in dd
-                                      if "\u064B" <= c <= "\u0652") > wm:
-                            out_words.append(dd)
-                        else:
-                            out_words.append(tok)
-                    else:
-                        out_words.append(tok)
+                        need.append(i)
+                if not need:
+                    return clean
+                # one full-context pass over the whole clause
+                whole = _diacritize(clean)
+                filled = None
+                if whole:
+                    w_toks = _re.split(r"(\s+)", whole)
+                    # align only if the tokenization matches 1:1
+                    if len(w_toks) == len(toks):
+                        filled = w_toks
+                out_words = []
+                for i, tok in enumerate(toks):
+                    if i in need and filled is not None:
+                        cand = filled[i]
+                        base_o = _strip_marks(tok)
+                        base_c = _strip_marks(cand)
+                        # accept only if it is the same word, better marked
+                        if (base_c == base_o
+                                and sum(1 for c in cand
+                                        if "\u064B" <= c <= "\u0652")
+                                > sum(1 for c in tok
+                                      if "\u064B" <= c <= "\u0652")):
+                            out_words.append(cand)
+                            continue
+                    out_words.append(tok)
                 merged = "".join(out_words)
                 if merged:
                     return merged
@@ -1042,7 +1138,7 @@ def _neural_pre(text):
             outp = []
             for seg in pieces:
                 if seg and any("\u0621" <= c <= "\u064A" for c in seg):
-                    dd = ar_neural.diacritize_text(seg)
+                    dd = _diacritize(seg)
                     outp.append(dd if dd else seg)
                 else:
                     outp.append(seg)
