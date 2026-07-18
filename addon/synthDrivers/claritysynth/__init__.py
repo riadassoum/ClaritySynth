@@ -4,6 +4,7 @@
 # engines, DLLs, voices, or network access. Text is phonemized by rule
 # (g2p.py) and rendered by a pure-Python Klatt-style engine (engine.py).
 
+import os
 import threading
 import queue
 from collections import OrderedDict
@@ -29,6 +30,19 @@ except ImportError:
     from driverHandler import StringParameterInfo
 from synthDriverHandler import VoiceInfo, synthIndexReached, synthDoneSpeaking
 from logHandler import log
+
+# Bind _() to this add-on's translation catalogue. Without this, _() is
+# Python's identity builtin and the UI stays English even when a translation
+# is installed. Must run at import time, before any _() call.
+try:
+    import addonHandler
+    addonHandler.initTranslation()
+except Exception:
+    # running outside NVDA (tests) — provide a passthrough so _() exists
+    import builtins
+    if not hasattr(builtins, "_"):
+        builtins._ = lambda s: s
+
 
 try:
     from speech.commands import (
@@ -76,29 +90,84 @@ _CLONED = _loadClonedProfile()
 _neuralTTS = None
 _neuralSpeakers = []
 _piperEN = None
+
+# ---------------------------------------------------------------------------
+# IMPORTANT — do NOT load the neural models here.
+#
+# NVDA imports EVERY synth driver when the user presses Ctrl+NVDA+S to pick a
+# synthesizer, and it does so on the main GUI thread. Initialising the ONNX
+# sessions (Piper + the Arabic mixer/vocoder, hundreds of MB) at import time
+# therefore froze NVDA for several seconds whenever that dialog was opened,
+# and any fault while loading a native library took NVDA down with it — which
+# is exactly the "NVDA crashes on Ctrl+NVDA+S until the add-on is removed"
+# report.
+#
+# Instead we only check CHEAPLY (does the model file exist?) so the voice list
+# is still correct, and the models themselves are loaded lazily on a worker
+# thread the first time the driver is actually used to speak.
+# ---------------------------------------------------------------------------
+
+def _neural_models_present():
+    """Cheap, file-existence-only probe. No imports, no ONNX, no DLLs."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    ar = os.path.join(base, "tts_arabic", "data")
+    en = os.path.join(base, "piper_voices")
+    have_ar = (os.path.isdir(ar)
+               and any(f.endswith(".onnx") for f in os.listdir(ar)))
+    have_en = (os.path.isdir(en)
+               and any(f.endswith(".onnx") for f in os.listdir(en)))
+    return have_ar, have_en
+
+
+_HAVE_AR, _HAVE_EN = (False, False)
 try:
-    from . import piper_neural
-    if piper_neural._try_init():
-        _piperEN = piper_neural
-        log.info("ClaritySynth: neural English (Piper) voice active")
+    _HAVE_AR, _HAVE_EN = _neural_models_present()
 except Exception:
-    log.debugWarning("ClaritySynth: Piper English unavailable",
-                     exc_info=True)
-try:
-    from . import tts_neural
-    if tts_neural._try_init():
-        _neuralTTS = tts_neural
-        _neuralSpeakers = tts_neural.SPEAKERS
-        log.info("ClaritySynth: neural Arabic voice ACTIVE - model=%s "
-                 "vocoder=%s speakers=%d. Select 'Arabic Neural ...' in "
-                 "the Voice list." % (tts_neural._model_id,
-                 tts_neural._vocoder_id, len(_neuralSpeakers)))
-    else:
-        log.info("ClaritySynth: neural voice models present but runtime "
-                 "did not initialise; using formant voices.")
-except Exception:
-    log.info("ClaritySynth: neural TTS unavailable (no onnxruntime or "
-             "models); formant voices only.", exc_info=True)
+    pass
+
+# Speaker count for the voice list. Known for the bundled multi-speaker
+# model; probing it would mean loading the model, which is what we are
+# avoiding. Corrected once the model is really loaded.
+_neuralSpeakers = [0, 1, 2, 3] if _HAVE_AR else []
+
+_engines_lock = threading.Lock()
+_engines_ready = False
+
+
+def _ensure_engines():
+    """Load the neural engines. Called from the speech worker thread (and
+    the background warm-up), NEVER from NVDA's GUI thread."""
+    global _neuralTTS, _neuralSpeakers, _piperEN, _engines_ready
+    if _engines_ready:
+        return
+    with _engines_lock:
+        if _engines_ready:
+            return
+        _engines_ready = True
+        if _HAVE_EN:
+            try:
+                from . import piper_neural
+                if piper_neural._try_init():
+                    _piperEN = piper_neural
+                    log.info("ClaritySynth: neural English (Piper) active")
+            except Exception:
+                log.debugWarning("ClaritySynth: Piper English unavailable",
+                                 exc_info=True)
+        if _HAVE_AR:
+            try:
+                from . import tts_neural
+                if tts_neural._try_init():
+                    _neuralTTS = tts_neural
+                    _neuralSpeakers = tts_neural.SPEAKERS
+                    log.info("ClaritySynth: neural Arabic voice ACTIVE - "
+                             "model=%s vocoder=%s speakers=%d"
+                             % (tts_neural._model_id,
+                                tts_neural._vocoder_id,
+                                len(_neuralSpeakers)))
+            except Exception:
+                log.debugWarning("ClaritySynth: neural Arabic unavailable",
+                                 exc_info=True)
+
 
 _bridge = None
 try:
@@ -174,13 +243,12 @@ def _punctPause(text, sr, is_arabic=False, scale=1.0):
 def _englishClauses(text):
     """Split English into natural clause/sentence units at punctuation
     ONLY, keeping each unit whole so the neural voice does not add
-    sentence-boundary intonation mid-phrase. A unit with no punctuation is
-    yielded intact (no arbitrary word chopping); only a very long
-    punctuation-free run is broken, and then on a large word boundary so
-    any seam is minimally audible."""
+    sentence-boundary intonation mid-phrase and so nothing is chopped
+    into meaningless fragments. A unit with no punctuation is yielded
+    intact — a short phrase like "This is a test" is spoken as one whole
+    thing, never split. Only a very long punctuation-free run is broken,
+    and then on a large word boundary so any seam is minimally audible."""
     import re
-    # split AFTER sentence/clause punctuation, keeping the mark with its
-    # clause. Covers . ! ? ; : , and — (em dash) and newlines.
     parts = re.split(r'(?<=[.!?;:,])\s+|\s*[\u2014]\s*|\n+', text)
     for p in parts:
         if p is None:
@@ -188,7 +256,6 @@ def _englishClauses(text):
         p = p.strip()
         if not p:
             continue
-        # only break if a single punctuation-free run is very long
         if len(p) <= 220:
             yield p
         else:
@@ -302,10 +369,28 @@ def _arabicCharName(ch):
         "\u063A": "غَين", "\u0641": "فَاء", "\u0642": "قَاف",
         "\u0643": "كَاف", "\u0644": "لَام", "\u0645": "مِيم",
         "\u0646": "نُون", "\u0647": "هَاء", "\u0648": "وَاو",
-        "\u064A": "يَاء", "\u0621": "هَمْزَة", "\u0623": "هَمْزَة",
-        "\u0625": "هَمْزَة", "\u0624": "هَمْزَة", "\u0626": "هَمْزَة",
+        "\u064A": "يَاء",
+        # each hamza form gets its own descriptive name instead of all
+        # saying just "همزة", the way a teacher names them
+        "\u0621": "هَمْزَة",                 # ء  bare hamza
+        "\u0623": "أَلِف عَلَيْهَا هَمْزَة",   # أ  alef with hamza above
+        "\u0625": "أَلِف تَحْتَهَا هَمْزَة",   # إ  alef with hamza below
+        "\u0624": "وَاو عَلَيْهَا هَمْزَة",    # ؤ  waw with hamza
+        "\u0626": "يَاء عَلَيْهَا هَمْزَة",    # ئ  ya with hamza
         "\u0622": "أَلِف مَدّ", "\u0629": "تَاء مَربُوطَة",
         "\u0649": "أَلِف مَقْصُورَة", "\u0640": "تَطْوِيل",
+        # Arabic diacritic (tashkeel) marks — named when read on their own.
+        # Merged from a user-supplied fix dictionary; applies to ClaritySynth
+        # only (not a global NVDA symbol dictionary).
+        "\u064E": "فَتْحَة",              # َ  fatha
+        "\u064B": "تَنْوِينُ الْفَتْحِ",    # ً  tanween fath
+        "\u064F": "ضَمَّة",               # ُ  damma
+        "\u064C": "تَنْوِينُ الضَّمِّ",     # ٌ  tanween damm
+        "\u0650": "كَسْرَة",              # ِ  kasra
+        "\u064D": "تَنْوِينُ الْكَسْرِ",    # ٍ  tanween kasr
+        "\u0652": "سُكُون",               # ْ  sukoon
+        "\u0651": "شَدَّة",               # ّ  shadda
+        "\u0670": "أَلِف خَنْجَرِيَّة",      # ٰ  superscript (dagger) alef
     }
     return names.get(ch, ch)
 
@@ -389,42 +474,77 @@ def _splitByScript(text):
     return [(t, bool(a)) for t, a in runs]
 
 
+# punctuation that should ALWAYS end a chunk (so a pause + intonation reset
+# happens there): sentence enders and clause separators, Arabic and Latin.
+_BREAK_PUNCT = ".!?\u061f\u06d4:\u061b;,\u060c"
+
+
 def _neuralChunks(text, limit=180):
-    """Yield clause-sized pieces of (already diacritized) text. The neural
-    model handles short clauses far better than very long strings, and it
-    lets speech be interrupted between clauses. Splits on sentence and
-    clause punctuation (Arabic and Latin), keeping the delimiter."""
+    """Yield clause-sized pieces of (already diacritized) text.
+
+    A chunk boundary is placed after every sentence/clause punctuation mark
+    (. ! ? \u061f \u06d4 : \u061b ; , \u060c) so the caller can insert a
+    real pause and the model restarts intonation there — this is what makes
+    ':' and '?' actually pause. Punctuation-free text is kept whole (never
+    chopped mid-phrase); only a genuinely over-long run with no punctuation
+    is split on a word boundary as a last resort."""
     import re
-    # split after . ! ? ; : , and their Arabic forms, and on quotes/newlines
-    parts = re.split(r'(?<=[\.!\?;:،؛؟\n\"\u00bb\u00ab])\s+', text)
-    buf = ""
+    # split AFTER any break punctuation, keeping the mark attached to the
+    # left piece; also split on newlines and quote guillemets
+    parts = re.split(
+        r'(?<=[' + _BREAK_PUNCT + r'\u00bb\u00ab])\s+|\n+', text)
     for p in parts:
+        if p is None:
+            continue
+        p = p.strip()
         if not p:
             continue
-        if len(buf) + len(p) + 1 <= limit:
-            buf = (buf + " " + p).strip()
+        if len(p) <= limit:
+            yield p
         else:
-            if buf:
-                yield buf
-            # a single over-long clause: hard-wrap on whitespace
+            # over-long punctuation-free run: wrap on word boundaries
             while len(p) > limit:
                 cut = p.rfind(" ", 0, limit)
                 if cut <= 0:
                     cut = limit
                 yield p[:cut].strip()
                 p = p[cut:].strip()
-            buf = p
-    if buf:
-        yield buf
+            if p:
+                yield p
 
 
 class SynthDriver(synthDriverHandler.SynthDriver):
     name = "claritysynth"
     # Translators: description of the ClaritySynth synthesizer.
-    description = _("ClaritySynth (Neural Arabic & English)")
+    description = _("ClaritySynth Neural")
 
     supportedSettings = (
+        DriverSetting("primaryEngine",
+                      _("Primary voice &engine"),
+                      availableInSettingsRing=True,
+                      defaultVal="mixer",
+                      displayName=_("Primary engine")),
         synthDriverHandler.SynthDriver.VoiceSetting(),
+        DriverSetting("primaryVariant",
+                      _("Primary voice &variant (quality/speed)"),
+                      availableInSettingsRing=True,
+                      defaultVal="auto",
+                      displayName=_("Primary variant")),
+        DriverSetting("vocoder",
+                      _("Primary voice v&ocoder (Mixer only)"),
+                      availableInSettingsRing=True,
+                      defaultVal="auto",
+                      displayName=_("Vocoder")),
+        DriverSetting("secondaryVoice",
+                      _("&Secondary voice (non-Arabic: English, etc.)"),
+                      availableInSettingsRing=True,
+                      defaultVal="auto",
+                      displayName=_("Secondary voice")),
+        DriverSetting("secondaryVariant",
+                      _("Secondary voice v&ariant (quality/speed)"),
+                      availableInSettingsRing=True,
+                      defaultVal="auto",
+                      displayName=_("Secondary variant")),
         DriverSetting("tashkeel",
                       _("&Tashkeel library (Arabic diacritization)"),
                       availableInSettingsRing=True,
@@ -436,17 +556,11 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                              defaultVal=False,
                              availableInSettingsRing=True),
         synthDriverHandler.SynthDriver.PitchSetting(),
-        synthDriverHandler.SynthDriver.InflectionSetting(),
         synthDriverHandler.SynthDriver.VolumeSetting(),
-        # Translators: labels for ClaritySynth voice parameters.
-        NumericDriverSetting("breathiness", _("&Breathiness"),
-                             defaultVal=6, availableInSettingsRing=True),
-        NumericDriverSetting("roughness", _("Rou&ghness"),
-                             defaultVal=18, availableInSettingsRing=True),
-        NumericDriverSetting("headSize", _("&Head size"),
-                             defaultVal=50, availableInSettingsRing=True),
-        NumericDriverSetting("stressEmphasis", _("Stress &emphasis"),
-                             defaultVal=50, availableInSettingsRing=True),
+        # Note: inflection, breathiness, roughness, head size and stress
+        # emphasis are formant-synthesis parameters with no effect on the
+        # neural voices, so they are intentionally NOT exposed here (they
+        # remain on the ClaritySynth Formant driver, where they do work).
         NumericDriverSetting("clarity",
                              _("&Clarity (noise reduction)"),
                              defaultVal=5, minStep=1),
@@ -455,9 +569,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         BooleanDriverSetting("tanweenPause",
                              _("Pronounce &tanween on isolated words"),
                              defaultVal=False),
-        BooleanDriverSetting("neuralArabic",
-                             _("Use &neural Arabic diacritizer if available"),
-                             defaultVal=True),
     )
     supportedCommands = {
         IndexCommand,
@@ -477,9 +588,16 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._pitch = 50
         self._inflection = 60
         self._volume = 90
-        # default to the neural Arabic voice when available, else formant
-        self._voice = ("neural0" if (_neuralTTS and _neuralSpeakers)
-                       else "adam")
+        # default to the neural Arabic voice whenever the models are
+        # installed (decided by the cheap probe, not by loading them)
+        # always default to a neural voice id; the neural engine loads
+        # lazily and there is no "adam" voice on the neural synth anymore
+        self._voice = "neural0"
+        self._primaryEngine = "mixer"
+        self._vocoder = "auto"
+        self._secondaryVoice = "auto"
+        self._primaryVariant = "auto"
+        self._secondaryVariant = "auto"
         self._breathiness = 6
         self._roughness = 18
         self._headSize = 50
@@ -512,6 +630,17 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                          daemon=True).start()
 
     def _warmup(self):
+        # Load the neural engines and the tashkeel backend HERE — on a
+        # background thread — so NVDA's GUI thread never does it.
+        try:
+            _ensure_engines()
+        except Exception:
+            pass
+        try:
+            from . import ar_tashkeel
+            ar_tashkeel.preload()
+        except Exception:
+            pass
         """Synthesize tiny throwaway utterances to make both neural models
         hot. Silent: results are discarded, nothing is fed to a player."""
         try:
@@ -565,29 +694,273 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         if value in self.availableVoices:
             self._voice = value
 
+    def _get_availableSecondaryVoices(self):
+        """The installed non-Arabic (Piper) voices, plus an Auto entry.
+        Pure filesystem scan — safe on the GUI thread, and new downloaded
+        voices appear here automatically."""
+        out = OrderedDict()
+        out["auto"] = StringParameterInfo("auto", _("Auto (default English)"))
+        try:
+            from . import voice_packs
+            for vid, label, lang in voice_packs.piper_voices():
+                # Arabic Piper voices (e.g. Kareem) belong on the PRIMARY
+                # side, never here — skip them.
+                if voice_packs.is_arabic_voice(vid, lang):
+                    continue
+                out[vid] = StringParameterInfo(vid, label)
+        except Exception:
+            pass
+        return out
+
+    # ---- casing aliases so NVDA's capitalize()-based name derivation also
+    # ---- resolves (prevents 'no attribute availablePrimaryvariants' crash)
+    def _get_availablePrimaryvariants(self):
+        return self._get_availablePrimaryVariants()
+
+    def _get_availableSecondaryvariants(self):
+        return self._get_availableSecondaryVariants()
+
+    def _get_availableSecondaryvoices(self):
+        return self._get_availableSecondaryVoices()
+
+    # ---- Primary voice engine: choose between the Mixer (multi-speaker
+    # ---- Arabic acoustic models) and Piper (Arabic Piper voices like
+    # ---- Kareem). Keeping them as separate engines — rather than mixing
+    # ---- Piper voices into the Mixer variant list — means a Piper voice
+    # ---- always goes through the same (correct-pitch) Piper path.
+    def _get_availablePrimaryEngines(self):
+        out = OrderedDict()
+        out["mixer"] = StringParameterInfo(
+            "mixer", _("Mixer (multi-speaker Arabic)"))
+        # only offer Piper if at least one Arabic Piper voice is installed
+        try:
+            from . import voice_packs
+            if any(voice_packs.is_arabic_voice(vid, lang)
+                   for vid, label, lang in voice_packs.piper_voices()):
+                out["piper"] = StringParameterInfo(
+                    "piper", _("Piper (Arabic Piper voices)"))
+        except Exception:
+            pass
+        return out
+
+    def _get_availablePrimaryengines(self):
+        return self._get_availablePrimaryEngines()
+
+    def _get_primaryEngine(self):
+        return getattr(self, "_primaryEngine", "mixer")
+
+    def _set_primaryEngine(self, value):
+        if value not in ("mixer", "piper"):
+            value = "mixer"
+        changed = (value != getattr(self, "_primaryEngine", "mixer"))
+        self._primaryEngine = value
+        # The Voice list depends on the engine, but NVDA caches it in
+        # self._availableVoices. Invalidate that cache so the next read
+        # rebuilds the list for the new engine (Mixer speakers vs Arabic
+        # Piper voices). Also pick a valid default voice for the new engine.
+        if changed:
+            try:
+                if hasattr(self, "_availableVoices"):
+                    del self._availableVoices
+            except Exception:
+                pass
+        try:
+            voices = self.availableVoices
+            if self._voice not in voices and voices:
+                self._voice = next(iter(voices))
+        except Exception:
+            pass
+
+    # ---- Vocoder (Mixer engine only). Lets the user make sure the vocoder
+    # ---- matches the model so audio is rendered correctly.
+    def _get_availableVocoders(self):
+        out = OrderedDict()
+        out["auto"] = StringParameterInfo("auto", _("Auto (recommended)"))
+        # map an installed vocoder file stem to the model id + a clean label
+        stem_map = {"vocos22": ("vocos", _("Vocos 22 kHz (recommended)")),
+                    "vocos44": ("vocos44", _("Vocos 44 kHz (higher fidelity)")),
+                    "hifigan": ("hifigan", _("HiFi-GAN"))}
+        try:
+            from . import voice_packs
+            seen = set()
+            for stem in voice_packs.vocoders():
+                vid, label = stem_map.get(
+                    stem, (stem, stem))
+                if vid not in seen:
+                    seen.add(vid)
+                    out[vid] = StringParameterInfo(vid, label)
+        except Exception:
+            pass
+        return out
+
+    def _get_availableVocoders_alias(self):
+        return self._get_availableVocoders()
+
+    def _get_vocoder(self):
+        return getattr(self, "_vocoder", "auto")
+
+    def _set_vocoder(self, value):
+        self._vocoder = value
+        try:
+            from . import tts_neural
+            if hasattr(tts_neural, "select_vocoder"):
+                tts_neural.select_vocoder(None if value == "auto" else value)
+        except Exception:
+            pass
+
+    def _get_availablePrimaryVariants(self):
+        """Quality/speed variants for the primary voice, depending on the
+        selected primary engine:
+          * Mixer  -> the installed Arabic acoustic models
+                      (mixer128 / mixer80 / fastpitch).
+          * Piper  -> the quality tiers of the chosen Arabic Piper voice.
+        Pure filesystem scan (safe on the GUI thread)."""
+        out = OrderedDict()
+        engine = getattr(self, "_primaryEngine", "mixer")
+
+        if engine == "piper":
+            # Under the Piper engine each voice/tier is already a distinct
+            # entry in the Voice list (e.g. Kareem low vs Kareem medium), so
+            # a separate variant is not applicable here.
+            out["auto"] = StringParameterInfo(
+                "auto", _("Not applicable (choose the voice above)"))
+            return out
+
+        # Mixer engine: the installed Arabic acoustic models
+        out["auto"] = StringParameterInfo("auto", _("Auto (best installed)"))
+        labels = {"mixer128": _("Mixer 128 (standard, 4 speakers)"),
+                  "mixer80": _("Mixer 80 (faster)"),
+                  "fastpitch": _("FastPitch (high quality)")}
+        try:
+            from . import voice_packs
+            for mid in voice_packs.arabic_models():
+                out[mid] = StringParameterInfo(mid, labels.get(mid, mid))
+        except Exception:
+            pass
+        return out
+
+    def _get_primaryVariant(self):
+        return getattr(self, "_primaryVariant", "auto")
+
+    def _set_primaryVariant(self, value):
+        self._primaryVariant = value
+        try:
+            from . import tts_neural
+            if value == "auto":
+                if hasattr(tts_neural, "select_model"):
+                    tts_neural.select_model(None)
+            elif value.startswith("piper:"):
+                # Arabic Piper voice as primary — handled at speak time
+                pass
+            elif hasattr(tts_neural, "select_model"):
+                tts_neural.select_model(value)
+        except Exception:
+            pass
+
+    def _get_availableSecondaryVariants(self):
+        """Quality variants for the non-Arabic Piper voice. Piper voices come
+        in quality tiers (x_low/low = fastest, medium/high = slower but
+        clearer). Lists the tiers available for the currently installed
+        secondary voices."""
+        out = OrderedDict()
+        out["auto"] = StringParameterInfo(
+            "auto", _("Auto (prefer fastest)"))
+        out["fast"] = StringParameterInfo(
+            "fast", _("Fast (low quality, lowest latency)"))
+        out["standard"] = StringParameterInfo(
+            "standard", _("Standard (higher quality, slower)"))
+        return out
+
+    def _get_secondaryVariant(self):
+        return getattr(self, "_secondaryVariant", "auto")
+
+    def _set_secondaryVariant(self, value):
+        self._secondaryVariant = value
+        try:
+            from . import piper_neural
+            if hasattr(piper_neural, "select_variant"):
+                piper_neural.select_variant(value)
+        except Exception:
+            pass
+
+    def _get_secondaryVoice(self):
+        return getattr(self, "_secondaryVoice", "auto")
+
+    def _set_secondaryVoice(self, value):
+        # the secondary voice is the NON-Arabic voice; never accept an Arabic
+        # Piper voice here (it belongs on the primary side)
+        try:
+            from . import voice_packs
+            if value and value != "auto" and \
+                    voice_packs.is_arabic_voice(value, None):
+                value = "auto"
+        except Exception:
+            pass
+        self._secondaryVoice = value
+        # tell the Piper layer which voice model to use ("auto" = bundled)
+        try:
+            from . import piper_neural
+            if hasattr(piper_neural, "select_voice"):
+                piper_neural.select_voice(None if value == "auto" else value)
+        except Exception:
+            pass
+
     def _getAvailableVoices(self):
+        """The neural Arabic voices for the CURRENTLY selected primary engine.
+
+        Called while NVDA builds the settings dialog on its GUI thread, so it
+        must NOT load the models — the voices come from cheap file-existence
+        probes; the models are loaded lazily by the speech worker.
+
+        * Mixer engine -> the multi-speaker Arabic acoustic model's speakers.
+        * Piper engine -> the installed Arabic Piper voices (e.g. Kareem).
+
+        The formant voices live in the separate "ClaritySynth Formant"
+        driver. English is spoken automatically by the secondary voice.
+        """
         voices = OrderedDict()
-        # Neural Arabic voices listed FIRST when available (headline
-        # feature). The label shows which model is active so users know
-        # whether a quality pack is installed.
-        if _neuralTTS and _neuralSpeakers:
-            q = _neuralTTS._model_id or "neural"
-            label = {"fastpitch": "HQ", "mixer128": "Std",
-                     "mixer80": "Fast"}.get(q, q)
-            for s in _neuralSpeakers:
-                if len(_neuralSpeakers) > 1:
+        engine = getattr(self, "_primaryEngine", "mixer")
+
+        if engine == "piper":
+            # Arabic Piper voices become the primary voice list
+            try:
+                from . import voice_packs
+                for vid, label, lang in voice_packs.piper_voices():
+                    if voice_packs.is_arabic_voice(vid, lang):
+                        voices["piper:" + vid] = VoiceInfo(
+                            "piper:" + vid, label, "ar")
+            except Exception:
+                pass
+            if not voices:
+                # engine set to piper but no Arabic Piper voice installed:
+                # show a clear placeholder rather than nothing
+                voices["piper:none"] = VoiceInfo(
+                    "piper:none", _("(no Arabic Piper voice installed)"), "ar")
+            return voices
+
+        # Mixer engine: speakers of the installed Arabic acoustic model
+        speakers = _neuralSpeakers or ([0, 1, 2, 3] if _HAVE_AR else [])
+        if speakers:
+            label = "Std"
+            if _neuralTTS is not None:
+                q = getattr(_neuralTTS, "_model_id", None) or "neural"
+                label = {"fastpitch": "HQ", "mixer128": "Std",
+                         "mixer80": "Fast"}.get(q, q)
+            for s in speakers:
+                if len(speakers) > 1:
                     nm = _("Arabic Neural %s - Speaker %d") % (label, s + 1)
                 else:
                     nm = _("Arabic Neural %s") % label
                 voices["neural%d" % s] = VoiceInfo("neural%d" % s, nm, "ar")
-        # NOTE: the formant voices (Adam/Clara/Robby) are intentionally NOT
-        # listed here — they live in the separate "ClaritySynth Formant"
-        # driver. This driver is the neural synth; English is spoken by the
-        # neural Piper voice automatically. If no neural voice is available
-        # at all, fall back to a single formant entry so the synth still
-        # works.
         if not voices:
-            voices["adam"] = VoiceInfo("adam", _("Adam (fallback)"), None)
+            if _HAVE_AR:
+                for s in (0, 1, 2, 3):
+                    nm = _("Arabic Neural - Speaker %d") % (s + 1)
+                    voices["neural%d" % s] = VoiceInfo(
+                        "neural%d" % s, nm, "ar")
+            else:
+                voices["neural0"] = VoiceInfo(
+                    "neural0", _("Arabic Neural"), "ar")
         return voices
 
     def _get_rate(self):
@@ -650,6 +1023,17 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         and which audibly lowers the noise floor of the Arabic voice."""
         return self._clarity / 200.0
 
+    def _volumeGain(self):
+        """Volume 0..100 -> output gain. The baseline (normalize_rms) is
+        already a healthy level, so this scales around it and lets 100 push
+        genuinely louder into the soft limiter (which prevents clipping)."""
+        v = max(0, min(100, self._volume)) / 100.0
+        # 100 -> 1.15x. Kept modest on purpose: the baseline (normalize_rms)
+        # is already loud, and pushing harder crushes speech into the soft
+        # limiter's knee, which sounds saturated/distorted. 1.15x stays out
+        # of the knee while still being clearly louder at the top.
+        return v * 1.15
+
     def _pauseScale(self):
         """Map the Pause length setting (0..100, default 40) to a multiplier
         for the pauses inserted between neural clauses. 0 -> no added
@@ -670,8 +1054,9 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         labels = {
             "libtashkeel": _("Libtashkeel (recommended)"),
             "rawi": _("Rawi ensemble"),
-            "shakkelha": _("Shakkelha"),
-            "shakkala": _("Shakkala"),
+            "catt": _("CATT"),
+            "shakkelha": _("Shakkelha (neural)"),
+            "shakkala": _("Shakkala (neural)"),
             "off": _("Off (read text as written)"),
         }
         out = OrderedDict()
@@ -1006,11 +1391,78 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                                                       "_neural_pre") else seg
         except Exception:
             diac = seg
+        # Arabic PIPER voice as primary: when the Primary engine is "piper",
+        # the Voice combo holds the Arabic Piper voice (e.g. "piper:kareem").
+        # Diacritization is already done above (same tashkeel libraries);
+        # Piper renders the diacritized Arabic directly. This is the SAME code
+        # path a Piper voice takes as a secondary voice, so its pitch is
+        # identical either way.
+        engine = getattr(self, "_primaryEngine", "mixer")
+        pv = getattr(self, "_primaryVariant", "auto")
+        piper_vid = None
+        if engine == "piper" and self._voice.startswith("piper:"):
+            piper_vid = self._voice.split(":", 1)[1]
+        elif engine == "piper":
+            # engine is Piper but the Voice combo hasn't been refreshed to a
+            # piper: voice yet (NVDA builds the combo once per dialog). Fall
+            # back to the first installed Arabic Piper voice so selecting the
+            # Piper engine works even before reopening settings.
+            try:
+                from . import voice_packs
+                for vid, label, lang in voice_packs.piper_voices():
+                    if voice_packs.is_arabic_voice(vid, lang):
+                        piper_vid = vid
+                        break
+            except Exception:
+                piper_vid = None
+        elif pv.startswith("piper:"):        # backward compat with old config
+            piper_vid = pv.split(":", 1)[1]
+        if piper_vid and piper_vid != "none" and _piperEN is not None:
+            try:
+                from . import piper_neural, timescale as _ts
+                vid = piper_vid
+                if hasattr(piper_neural, "synth_wave_with"):
+                    raw, sr = piper_neural.synth_wave_with(
+                        diac, vid, length_scale=self._neuralLengthScale(),
+                        clarity=self._clarity)
+                    if raw:
+                        raw = _ts.finalize_audio(
+                            raw, sr, self._volumeGain(),
+                            semitones=self._pitchSemitones(0),
+                            speed=self._speedFactor(), even_droop=False)
+                        # the caller (_speakMixedNeural) treats all Arabic
+                        # output as the Mixer's rate (out_sr). A Piper voice
+                        # may use a different native rate, so resample to the
+                        # expected rate here, otherwise it plays too fast/slow
+                        # (which also shifts the perceived pitch).
+                        try:
+                            want_sr = (_neuralTTS.sample_rate()
+                                       if _neuralTTS is not None else 22050)
+                        except Exception:
+                            want_sr = 22050
+                        if sr and sr != want_sr:
+                            try:
+                                import numpy as _np
+                                a = _np.frombuffer(raw, dtype=_np.int16)
+                                if a.size:
+                                    ratio = want_sr / float(sr)
+                                    idx = _np.round(
+                                        _np.arange(0, a.size * ratio) / ratio
+                                    ).astype(_np.int64)
+                                    idx = idx[idx < a.size]
+                                    raw = a[idx].astype(_np.int16).tobytes()
+                            except Exception:
+                                pass
+                        return raw
+            except Exception:
+                pass
         out = []
         try:
             chunks = _neuralChunks(diac)
         except Exception:
             chunks = [diac]
+        out_sr = _neuralTTS.sample_rate()
+        pscale = self._pauseScale()
         for chunk in chunks:
             if self._cancelFlag.is_set():
                 break
@@ -1019,23 +1471,31 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 denoise=self._denoise())
             if pcm and timescale:
                 sr = _neuralTTS.sample_rate()
-                pcm = timescale.normalize_rms(pcm)
-                pcm = timescale.pitch_shift_pcm(pcm,
-                                                self._pitchSemitones(0), sr)
-                pcm = timescale.compress_pcm(pcm, self._speedFactor(), sr)
-                pcm = timescale.apply_gain(pcm, self._volume / 100.0)
+                pcm = timescale.finalize_audio(
+                    pcm, sr, self._volumeGain(),
+                    semitones=self._pitchSemitones(0),
+                    speed=self._speedFactor(), even_droop=True)
             if pcm:
                 out.append(pcm)
+                # insert a real silence after this clause/sentence so ':' and
+                # '?' actually pause (the model itself flattens punctuation)
+                pause = _punctPause(chunk, out_sr, is_arabic=True,
+                                    scale=pscale)
+                if pause:
+                    out.append(pause)
         return b"".join(out) if out else None
 
     def _englishPCM(self, seg, pitchOffset=0):
-        """English run -> (PCM bytes, sample_rate). Uses Piper if present,
-        else renders the formant engine to PCM."""
+        """English run -> (PCM bytes, sample_rate).
+
+        Rendered by the neural Piper voice. The formant engine is only used
+        when Piper is genuinely unavailable (no model installed); it must
+        never be mixed in alongside a working neural voice."""
         try:
             from . import timescale
         except Exception:
             timescale = None
-        if _piperEN and any(c.isalpha() for c in seg):
+        if _piperEN and any(c.isalnum() for c in seg):
             try:
                 ls = self._neuralLengthScale()
                 pcm = _piperEN.synth_wave(seg, length_scale=ls, volume=1.0,
@@ -1043,13 +1503,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 if pcm:
                     sr = _piperEN.sample_rate()
                     if timescale:
-                        pcm = timescale.normalize_rms(pcm)
-                        pcm = timescale.pitch_shift_pcm(
-                            pcm, self._pitchSemitones(pitchOffset), sr)
-                        pcm = timescale.compress_pcm(
-                            pcm, self._speedFactor(), sr)
-                        pcm = timescale.apply_gain(pcm,
-                                                   self._volume / 100.0)
+                        pcm = timescale.finalize_audio(
+                            pcm, sr, self._volumeGain(),
+                            semitones=self._pitchSemitones(pitchOffset),
+                            speed=self._speedFactor(), even_droop=False)
                     return pcm, sr
             except Exception:
                 pass
@@ -1131,13 +1588,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                         sr = _neuralTTS.sample_rate()
                         # identical pipeline to the English voice so both
                         # behave the same at a given rate/pitch/volume
-                        pcm = timescale.normalize_rms(pcm)
-                        pcm = timescale.pitch_shift_pcm(
-                            pcm, self._pitchSemitones(0), sr)
-                        pcm = timescale.compress_pcm(
-                            pcm, self._speedFactor(), sr)
-                        pcm = timescale.apply_gain(pcm,
-                                                   self._volume / 100.0)
+                        pcm = timescale.finalize_audio(
+                            pcm, sr, self._volumeGain(),
+                            semitones=self._pitchSemitones(0),
+                            speed=self._speedFactor(), even_droop=True)
                     except Exception:
                         pass
                     self._neuralPlayer.feed(pcm)
@@ -1210,6 +1664,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 
     def _speakItems(self, items):
         cancelled = self._cancelFlag.is_set
+        # guarantee the engines are up (no-op after the first call). This
+        # runs on the speech worker thread, never on NVDA's GUI thread.
+        if not _engines_ready:
+            _ensure_engines()
         items = self._coalesce(items)
         for item in items:
             if cancelled():
@@ -1246,20 +1704,42 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._neuralPlayer.idle()
 
     def _speakEnglishChar(self, ch, pitchOffset=0):
-        """Speak ONE English character with the neural voice. Letters and
-        digits are rendered from exact IPA (eSpeak's rules mispronounce
-        single letter names); punctuation is spoken by name. Returns True
-        if it was handled."""
+        """Speak ONE non-Arabic character with the secondary neural voice.
+
+        For an English voice, letters and digits are rendered from an exact
+        IPA table (eSpeak mispronounces single English letter names). For a
+        non-English voice (French, Spanish, etc.), the character is handed to
+        that voice so it is phonemized and spoken in ITS OWN language, rather
+        than with English letter names. Returns True if handled."""
         if not _piperEN:
             return False
         try:
             from . import timescale
         except Exception:
             timescale = None
-        ipa = _englishCharIPA(ch)
-        word = None if ipa else _englishCharWord(ch)
-        if not ipa and not word:
-            return False
+
+        # is the current secondary voice English?
+        is_en = True
+        try:
+            if hasattr(_piperEN, "current_voice_is_english"):
+                is_en = _piperEN.current_voice_is_english()
+        except Exception:
+            is_en = True
+
+        ipa = None
+        word = None
+        if is_en:
+            ipa = _englishCharIPA(ch)
+            word = None if ipa else _englishCharWord(ch)
+            if not ipa and not word:
+                return False
+        else:
+            # non-English voice: let it phonemize the character itself so it
+            # is spoken in its own alphabet/language. Pass the character (or,
+            # for a lone digit, the digit) straight through as text.
+            word = ch
+            if not word or not word.strip():
+                return False
         try:
             pcm = _piperEN.synth_wave(
                 word or "", length_scale=self._neuralLengthScale(),
@@ -1268,24 +1748,54 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 return False
             sr = _piperEN.sample_rate()
             if timescale:
-                pcm = timescale.normalize_rms(pcm)
-                pcm = timescale.pitch_shift_pcm(
-                    pcm, self._pitchSemitones(pitchOffset), sr)
-                pcm = timescale.compress_pcm(pcm, self._speedFactor(), sr)
-                pcm = timescale.apply_gain(pcm, self._volume / 100.0)
+                pcm = timescale.finalize_audio(
+                    pcm, sr, self._volumeGain(),
+                    semitones=self._pitchSemitones(pitchOffset),
+                    speed=self._speedFactor(), even_droop=False)
             self._feedNeural(pcm, sr)
             return True
         except Exception:
             return False
 
+    def _speakRuntimeWarning(self):
+        """Speak a short, actionable message with the formant engine (which
+        needs no onnxruntime) when the neural engine could not start."""
+        msg = ("ClaritySynth neural voices could not start on this computer. "
+               "Please install the Microsoft Visual C plus plus Redistributable, "
+               "then restart NVDA.")
+        try:
+            tokens = g2p.text_to_tokens(msg)
+            if not tokens:
+                return
+            _eng = _bridge.synthesize if _bridge else engine.synthesize
+            for chunk in _eng(tokens, dscale=self._durationScale(),
+                              base_f0=self._baseF0(0),
+                              volume=self._volume / 100.0,
+                              is_cancelled=self._cancelFlag.is_set):
+                if self._cancelFlag.is_set():
+                    return
+                self._feed(chunk)
+        except Exception:
+            pass
+
     def _speakOneText(self, text, charMode, pitchOffset):
         cancelled = self._cancelFlag.is_set
-        # Single Arabic character in character mode -> neural letter name.
-        if (self._voice.startswith("neural") and _neuralTTS
-                and charMode and len(text.strip()) == 1
-                and any("\u0600" <= c <= "\u06FF" for c in text.strip())):
-            nm = _arabicCharName(text.strip())
+        engine = getattr(self, "_primaryEngine", "mixer")
+        stripped = text.strip()
+        is_single_ar = (charMode and len(stripped) == 1
+                        and any("\u0600" <= c <= "\u06FF" for c in stripped))
+        # Single Arabic character in character mode -> speak its Arabic letter
+        # name with the Arabic voice. Works for BOTH engines: Mixer (via
+        # _speakNeural) and Piper (via the Arabic-Piper path in
+        # _speakMixedNeural / _neuralArabicPCM).
+        if is_single_ar and _neuralTTS and engine != "piper" \
+                and self._voice.startswith("neural"):
+            nm = _arabicCharName(stripped)
             if nm and self._speakNeural(nm):
+                return
+        if is_single_ar and engine == "piper":
+            nm = _arabicCharName(stripped)
+            if nm and self._speakMixedNeural(nm, pitchOffset):
                 return
         if (self._voice.startswith("neural") and _neuralTTS
                 and not charMode
@@ -1314,6 +1824,23 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             # a bare space still needs announcing
             if text and not ch and self._speakEnglishChar(" ", pitchOffset):
                 return
+        # NEURAL DRIVER: never fall through to the formant engine while a
+        # neural voice is selected — that is what made formant timbre "bleed"
+        # into the neural synth. Speak it neurally, or say nothing.
+        if self._voice.startswith("neural") or _HAVE_AR or _HAVE_EN:
+            if text and text.strip():
+                produced = self._speakMixedNeural(text, pitchOffset)
+                # neural genuinely unavailable at runtime (models present but
+                # engine did not start) -> warn once via the formant engine
+                if not produced and not _engines_ready:
+                    _ensure_engines()
+                    produced = self._speakMixedNeural(text, pitchOffset)
+                if not produced and _neuralTTS is None and _piperEN is None \
+                        and not getattr(self, "_warnedNoRuntime", False):
+                    self._warnedNoRuntime = True
+                    self._speakRuntimeWarning()
+            return
+        # Only reached when NO neural models are installed at all.
         if charMode and len(text.strip()) == 1:
             tokens = g2p.char_to_tokens(text.strip())
         else:

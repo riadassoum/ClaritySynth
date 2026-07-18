@@ -145,9 +145,19 @@ def isFixedWord(word, results, orthography, pronunciations):
         lastLetter = [u'i0']
     elif(lastLetter in unambiguousConsonantMap):
         lastLetter = [unambiguousConsonantMap[lastLetter]]
-    # Remove all dacritics from word
+    # Remove all diacritics from word (keep the ORIGINAL consonant class used
+    # by the fixed-word keys).
     wordConsonants = re.sub(u'[^h*Ahn\'>wl}kmyTtfd]', '', word)
-    if(wordConsonants in fixedWords):  # check if word is in the fixed word lookup table
+    # Guard against prefixed forms hijacking a fixed word: the fixed-word
+    # match is only valid if NO leading letter was dropped by the class
+    # filter above. Compute the full consonant skeleton and require that it
+    # starts the same way, so بالله/والله/تالله (bi/wa/ta + الله) are NOT
+    # matched as bare الله (which used to drop the prefix -> "لاه").
+    _fullSkeleton = re.sub(
+        u'[^\u0621-\u063A\u0641-\u064Ah*Ahn\'>wl}kmyTtfdbsqSDTZEgpvxzr]',
+        '', word)
+    _prefixDropped = (len(_fullSkeleton) > len(wordConsonants))
+    if(wordConsonants in fixedWords and not _prefixDropped):  # fixed word lookup
         if(isinstance(fixedWords[wordConsonants], list)):
             for pronunciation in fixedWords[wordConsonants]:
                 if(pronunciation.split(' ')[-1] in lastLetter):
@@ -164,6 +174,7 @@ def isFixedWord(word, results, orthography, pronunciations):
 def preprocess_utterance(utterance):
     # Do some normalisation work and split utterance to words
     utterance = utterance.replace(u'AF', u'F')
+    utterance = utterance.replace(u'FA', u'F')   # tanween fath + alif (e.g. ذامًّا)
     utterance = utterance.replace(u'\u0640', u'')
     utterance = utterance.replace(u'o', u'')
     utterance = utterance.replace(u'aA', u'A')

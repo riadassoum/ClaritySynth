@@ -16,7 +16,10 @@ import sys
 import ctypes
 from ctypes import c_short, POINTER, cast
 
-from . import engine as pyengine
+try:
+    from . import engine as pyengine   # imported as claritysynth.dll_engine
+except ImportError:
+    import engine as pyengine           # imported as a loose module (Formant)
 
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_here, "sp"))

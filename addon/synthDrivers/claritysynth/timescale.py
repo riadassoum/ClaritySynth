@@ -249,7 +249,102 @@ def _time_stretch(pcm_bytes, factor, sr, frame_ms=30, seek_ms=6):
     return y.astype(np.int16).tobytes()
 
 
-def normalize_rms(pcm_bytes, target_rms=6000.0, limit=30000.0):
+def level_envelope(pcm_bytes, sr, win_ms=160, target=6500.0,
+                   max_boost=1.8, floor_ratio=0.18, peak_ceiling=20000.0):
+    """Even out slow volume drift within an utterance (e.g. a speaker whose
+    voice fades toward the end) WITHOUT pushing peaks into the limiter.
+
+    A smoothed short-term RMS envelope is computed and each region is scaled
+    toward `target`. Crucially, the boost applied to any region is also
+    capped so the region's own PEAK stays under `peak_ceiling` — so a sharp
+    consonant sitting inside an otherwise-quiet stretch is never amplified
+    into distortion. This is what previously made the Arabic (Mixer) voice
+    sound saturated even at low volume."""
+    import numpy as np
+    if not pcm_bytes:
+        return pcm_bytes
+    x = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
+    n = x.size
+    if n < sr // 4:
+        return pcm_bytes
+    win = max(256, int(sr * win_ms / 1000.0))
+    power = x * x
+    kernel = np.ones(win, dtype=np.float32) / win
+    st_rms = np.sqrt(np.convolve(power, kernel, mode="same")) + 1.0
+    # short-term PEAK envelope (max |x| in the same window) so we know how
+    # much headroom each region has before it would clip
+    absx = np.abs(x)
+    st_peak = np.sqrt(np.convolve(absx * absx, kernel, mode="same"))
+    st_peak = np.maximum(st_peak, 1.0)
+    peak_rms = float(np.percentile(st_rms, 95)) or 1.0
+    gate = peak_rms * floor_ratio
+    # desired gain to reach the RMS target
+    gain = target / st_rms
+    # peak-safety cap: never boost a region past peak_ceiling on its peak
+    peak_cap = peak_ceiling / st_peak
+    gain = np.minimum(gain, peak_cap)
+    gain = np.clip(gain, 1.0 / max_boost, max_boost)
+    quiet = st_rms < gate
+    gain[quiet] = 1.0 + (gain[quiet] - 1.0) * (st_rms[quiet] / gate)
+    # noise-floor guard: fade the boost back toward 1.0 as the level drops
+    # toward the bottom of the utterance, so hiss in the drooped tail is not
+    # amplified (this was the grainy "old radio" artifact on speakers 2 & 4)
+    nf = peak_rms * 0.30
+    low = st_rms < nf
+    gain[low] = 1.0 + (gain[low] - 1.0) * (st_rms[low] / nf) ** 2
+    # smooth the gain with a LONGER kernel so it can't pump/breathe
+    sk = max(512, win // 2)
+    smoother = np.ones(sk, dtype=np.float32) / sk
+    gain = np.convolve(gain, smoother, mode="same")
+    y = x * gain
+    # gentle safety limit well below full scale — should rarely engage now
+    return soft_limit(y, ceiling=30000.0).astype(np.int16).tobytes()
+
+
+def finalize_audio(pcm_bytes, sr, volume_gain, semitones=0.0, speed=1.0,
+                   even_droop=False):
+    """The ONE audio finishing chain used by every voice (Arabic Mixer,
+    English Piper, Arabic Piper) so they all sound equally loud and clean.
+
+    Order: optional droop-evening (peak-safe) -> RMS normalize to a shared
+    target -> pitch shift -> time-compress -> apply volume. A single limiter
+    pass inside normalize keeps peaks clean; nothing here pushes a voice into
+    saturation, and both languages land at the same perceived loudness."""
+    if not pcm_bytes:
+        return pcm_bytes
+    out = pcm_bytes
+    if even_droop:
+        out = level_envelope(out, sr)
+    out = normalize_rms(out)                 # shared target -> equal loudness
+    out = pitch_shift_pcm(out, semitones, sr)
+    out = compress_pcm(out, speed, sr)
+    out = apply_gain(out, volume_gain)
+    return out
+
+
+def soft_limit(x, ceiling=32200.0, knee=0.72):
+    """Smoothly compress peaks above `knee * ceiling` instead of clipping
+    them. Below the knee the signal is untouched, so quiet speech is not
+    coloured; above it, peaks are curved down to the ceiling. This lets the
+    voice be genuinely louder while staying clean."""
+    import numpy as np
+    k = knee * ceiling
+    a = np.abs(x)
+    over = a > k
+    if not over.any():
+        return x
+    head = ceiling - k
+    if head <= 0:
+        return np.clip(x, -ceiling, ceiling)
+    excess = (a[over] - k) / head
+    # tanh knee: asymptotically approaches the ceiling, never exceeds it
+    shaped = k + head * np.tanh(excess)
+    y = x.copy()
+    y[over] = np.sign(x[over]) * shaped
+    return y
+
+
+def normalize_rms(pcm_bytes, target_rms=8000.0, limit=32200.0):
     """Scale audio to a consistent RMS loudness so different neural voices
     match in perceived volume. Peak-limited to avoid clipping."""
     import numpy as np
@@ -261,19 +356,16 @@ def normalize_rms(pcm_bytes, target_rms=6000.0, limit=30000.0):
     rms = float(np.sqrt(np.mean(x * x))) or 1.0
     gain = target_rms / rms
     y = x * gain
-    m = float(np.max(np.abs(y))) or 1.0
-    if m > limit:
-        y = y * (limit / m)
+    y = soft_limit(y, ceiling=limit)
     return y.astype(np.int16).tobytes()
 
 
-def apply_gain(pcm_bytes, gain, limit=32000.0):
-    """Apply a linear volume gain (0..1+) with peak limiting."""
+def apply_gain(pcm_bytes, gain, limit=32200.0):
+    """Apply the user's volume as a gain, with a soft limiter rather than a
+    hard cap so the top of the range is genuinely louder and still clean."""
     import numpy as np
-    if not pcm_bytes or abs(gain - 1.0) < 0.01:
+    if not pcm_bytes or abs(gain - 1.0) < 0.005:
         return pcm_bytes
     x = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) * gain
-    m = float(np.max(np.abs(x))) or 1.0
-    if m > limit:
-        x = x * (limit / m)
+    x = soft_limit(x, ceiling=limit)
     return x.astype(np.int16).tobytes()

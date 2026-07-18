@@ -2,76 +2,158 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ClaritySynth — Neural Arabic &amp; English Speech Synthesizer for NVDA</title>
+<title>ClaritySynth — Neural Multilingual Speech Synthesizer for NVDA</title>
 </head>
 <body>
 <h1>ClaritySynth</h1>
-<p><b>A bilingual (Arabic &amp; English) neural speech synthesizer add-on for the NVDA screen reader.</b></p>
-<p>ClaritySynth combines natural neural voices for both Arabic and English, an automatic Arabic diacritizer (tashkeel), full tajweed-aware Arabic phonology, and automatic language switching — all in a single add-on, with a lightweight formant synthesizer included as a separate, always-available fallback.</p>
+<p><b>A neural, Arabic-first, multilingual speech synthesizer add-on for the NVDA screen reader.</b></p>
 
-<h2>Features</h2>
+<p>ClaritySynth speaks Arabic with natural neural voices, automatic
+diacritization (tashkeel), and full tajweed-aware phonology. It also speaks
+English and — through downloadable voice packs — many other languages, and it
+switches between Arabic and non-Arabic automatically inside a single sentence.
+A separate, lightweight formant synthesizer is included as a tiny,
+always-available alternative.</p>
+
+<p>ClaritySynth installs <b>two synthesizers</b>, which you pick from NVDA's
+synthesizer list (<b>NVDA+Ctrl+S</b>):</p>
 <ul>
-<li><b>Neural Arabic voices</b> — four natural-sounding Arabic speakers at 22.05&nbsp;kHz (MixerTTS-128 acoustic model with the Vocos vocoder).</li>
-<li><b>Neural English voice</b> — a natural English voice (Piper / VITS), used automatically for English text and the English side of mixed sentences. Phonemization is done directly through the bundled eSpeak NG library, with no heavy dependencies.</li>
-<li><b>Automatic diacritization (tashkeel)</b> — undiacritized Arabic is automatically vocalized before being spoken, using a neural model (Shakkelha) when available, or a large statistical model plus the Mishkal engine as a fallback. Text that is already diacritized is preserved exactly as written.</li>
-<li><b>Automatic language switching</b> — within one sentence, Arabic runs are spoken by the neural Arabic voice and English words, numbers and symbols by the appropriate voice. Numbers next to Arabic are read as Arabic words; numbers in English context are read in English.</li>
-<li><b>Reliable fast speech</b> — raising the rate speeds speech up through pitch-preserving waveform time-compression (WSOLA), so the voices stay clear and never drop or slur phonemes, even at high speed. An optional <b>Rate boost</b> checkbox pushes the top speed much further.</li>
-<li><b>Normalized controls</b> — Rate, Pitch, and Volume behave identically across both languages: the same rate is the same speed, the same volume is the same loudness (RMS-matched), and the Pitch control shifts both voices equally.</li>
-<li><b>Full Arabic phonology</b> — correct tajweed including ra&#700; tafkhim/tarqiq (heavy/light ر), emphatic consonants (ص ض ط ظ), pharyngeals (ح ع), uvulars (ق خ غ), hamzat al-wasl elision (including forms such as الانتخاب → al-intikhāb and بالانتخاب → bi-l-intikhāb), tanween, and context-sensitive taa marbuta (ة).</li>
-<li><b>Character navigation</b> — reading by character announces Arabic letters by their names with the neural voice.</li>
-<li><b>Lightweight formant synthesizer</b> — a separate driver, <b>ClaritySynth Formant</b>, provides three pure-Python formant voices (Adam, Clara, Robby) with no neural models — tiny, fast, and always available.</li>
+<li><b>ClaritySynth Neural</b> — the main, natural-sounding voice for everyday
+use.</li>
+<li><b>ClaritySynth Formant</b> — a tiny, robust fallback that needs no neural
+models. It can use NV Speech Player, a built-in engine, or eSpeak NG.</li>
 </ul>
 
-<h2>Getting started: selecting a voice</h2>
+<h2>Quick start</h2>
 <ol>
-<li>Open the NVDA menu &gt; Preferences &gt; Settings &gt; Speech (or press <b>NVDA+Ctrl+V</b>).</li>
-<li>Ensure the synthesizer is set to <b>ClaritySynth</b> (use <b>NVDA+Ctrl+S</b> to change synthesizer).</li>
-<li>In the <b>Voice</b> list, choose one of the <b>Arabic Neural</b> voices (Speaker 1–4). Type or read Arabic and it is diacritized and spoken automatically; English and numbers in the same text are handled automatically.</li>
+<li>Press <b>NVDA+Ctrl+S</b> and choose <b>ClaritySynth Neural</b>.</li>
+<li>Press <b>NVDA+Ctrl+V</b> to open Speech settings.</li>
+<li>Leave the <b>Primary voice engine</b> on <b>Mixer</b> and pick one of the
+Arabic Neural speakers as your <b>Voice</b>. That is all you need — Arabic is
+diacritized and spoken automatically, and any English, numbers or symbols in
+the same sentence are handled for you.</li>
 </ol>
-<p>To use only the small formant voices, choose <b>ClaritySynth Formant</b> from the synthesizer list instead.</p>
 
-<h2>Settings</h2>
+<h2>Choosing your Arabic voice: the Primary voice engine</h2>
+<p>The first setting, <b>Primary voice engine</b>, decides how your Arabic
+voice is produced:</p>
 <ul>
-<li><b>Rate</b> — speaking speed. Neural voices stay clear across the whole range.</li>
-<li><b>Tashkeel library</b> (combo box, right after Voice) &mdash; choose which engine adds Arabic diacritics: <b>Libtashkeel</b> (default), <b>Rawi ensemble</b>, <b>Shakkelha</b>, <b>Shakkala</b>, or <b>Off</b> to read text exactly as written. If the chosen library cannot load, another working one is used automatically.</li>
-<li><b>Clarity (noise reduction)</b> &mdash; reduces the faint hiss the neural models produce. It cleans up <i>both</i> voices: for Arabic it drives the vocoder's denoiser, for English it lowers the model's stochastic noise. The default (5) matches the setting used by NabraTTS; raise it for a cleaner, smoother voice.</li>
-<li><b>Pause length</b> &mdash; now applies to the neural voices as well: it lengthens or shortens the pauses inserted at commas, colons and sentence ends. Set it to 0 to remove the added pauses entirely.</li>
-<li><b>Rate boost</b> (checkbox, right after Rate) — when enabled, raises the top speed substantially. Speed comes from pitch-preserving time-compression, so phonemes are never dropped.</li>
-<li><b>Pitch, Inflection, Volume</b> — standard controls, applied identically to both neural voices.</li>
-<li><b>Breathiness, Roughness, Head size, Stress emphasis, Pause length</b> — fine control over the formant voice.</li>
-<li><b>Pronounce tanween on isolated words</b> — when on, cited/isolated words sound their tanween instead of using pausal rules.</li>
-<li><b>Use neural Arabic diacritizer if available</b> — toggles the neural tashkeel tier (statistical fallback remains).</li>
+<li><b>Mixer</b> (default) — the built-in multi-speaker neural Arabic voice.
+With Mixer selected you can choose the <b>Voice</b> (speaker), the
+<b>Primary voice variant</b> (which acoustic model, when more than one is
+installed), and the <b>Vocoder</b>.</li>
+<li><b>Piper</b> — an Arabic Piper voice you have downloaded (such as Kareem).
+This option appears only once you have installed at least one Arabic Piper
+voice. With Piper selected, the <b>Voice</b> list becomes your installed
+Arabic Piper voices.</li>
+</ul>
+<p>Both engines use the same tashkeel (diacritization) pipeline, so your Arabic
+is vocalized the same way whichever you choose. If you switch the engine while
+the settings window is open, close and reopen Speech settings so the Voice list
+refreshes.</p>
+
+<h2>The secondary (non-Arabic) voice</h2>
+<p>English and other non-Arabic text are spoken by the <b>Secondary voice</b>.
+A natural English voice is built in and used automatically. You can install
+more languages from the downloads window; each is spoken in its own language.
+The <b>Secondary voice variant</b> chooses a quality/speed tier.</p>
+
+<h2>Diacritization (tashkeel)</h2>
+<p>Undiacritized Arabic is vocalized automatically before it is spoken; text
+that already has diacritics is kept exactly as written. The <b>Tashkeel
+library</b> setting chooses which engine adds the marks:</p>
+<ul>
+<li><b>Libtashkeel</b> (default) and <b>Rawi</b> are always available.</li>
+<li><b>CATT</b>, <b>Shakkala</b> and <b>Shakkelha</b> appear once downloaded.</li>
+<li><b>Off</b> reads the text exactly as written.</li>
 </ul>
 
-<h2>How it works</h2>
-<p>For Arabic text: the text is normalized (tatweel/kashida removed), numbers are spelled out as Arabic words, and — if the text is not already diacritized — each clause is vocalized by the neural Shakkelha model (or the statistical model + Mishkal). The diacritized text is then rendered by the neural acoustic model (MixerTTS-128) and the Vocos vocoder. For English and numbers, text is converted to phonemes directly through eSpeak NG and rendered by the Piper neural voice. All neural audio then passes through a shared, normalized post-processing stage (loudness matching, pitch, and WSOLA time-compression) so both voices sound consistent and can be sped up cleanly.</p>
+<h3>Diacritize Arabic text (a Tools-menu tool)</h3>
+<p>Under the NVDA <b>Tools</b> menu, in the <b>ClaritySynth</b> submenu,
+<b>Diacritize Arabic text (tashkeel)</b> opens a window where you can paste Arabic of any length, pick a tashkeel
+library, and get the fully diacritized text back to copy — exactly as that
+library would read it. It works no matter which synthesizer is active, and it
+leaves any English, numbers and symbols untouched.</p>
 
-<h2>Credits and third-party components</h2>
-<p>ClaritySynth is built on the work of many open-source projects, with gratitude:</p>
+<h2>Downloading voices and models</h2>
+<p>Open the NVDA <b>Tools</b> menu, choose the <b>ClaritySynth</b> submenu,
+then <b>Voice &amp; model downloads</b>. The window is organized into tabs:</p>
 <ul>
-<li><b>tts_arabic</b> — Arabic neural TTS packaging (MixerTTS, FastPitch, Vocos, HiFi-GAN in ONNX), by nipponjo. <a href="https://github.com/nipponjo/tts_arabic">github.com/nipponjo/tts_arabic</a> (MIT / respective model licenses).</li>
-<li><b>arabic_vocalizer</b> — ONNX packaging of the Shakkelha and Shakkala diacritizers, by nipponjo. <a href="https://github.com/nipponjo/arabic_vocalizer">github.com/nipponjo/arabic_vocalizer</a> (MIT).</li>
-<li><b>Shakkelha</b> — neural Arabic text diacritization. Ali Fadel, Ibraheem Tuffaha, Bara&#700; Al-Jawarneh, Mahmoud Al-Ayyoub, EMNLP-IJCNLP 2019. <a href="https://github.com/AliOsm/shakkelha">github.com/AliOsm/shakkelha</a> (MIT).</li>
-<li><b>Shakkala</b> — neural Arabic diacritization, by Barqawiz. <a href="https://github.com/Barqawiz/Shakkala">github.com/Barqawiz/Shakkala</a> (MIT).</li>
-<li><b>MixerTTS</b>, <b>FastPitch</b>, <b>HiFi-GAN</b>, <b>Vocos</b> — acoustic models and vocoders (NVIDIA / respective MIT/BSD/Apache licenses).</li>
-<li><b>Piper</b> — neural VITS text-to-speech. rhasspy / OHF-Voice. <a href="https://github.com/OHF-Voice/piper1-gpl">github.com/OHF-Voice/piper1-gpl</a> (MIT). English voice from the Piper voices collection (per its MODEL_CARD; Amy voice trained from data via the Mycroft/mimic3 project).</li>
-<li><b>eSpeak NG</b> — used as the English phonemizer library. <a href="https://github.com/espeak-ng/espeak-ng">github.com/espeak-ng/espeak-ng</a> (GPL-3.0).</li>
-<li><b>Mishkal</b> — Arabic morphological analysis and diacritization, by Taha Zerrouki. <a href="https://github.com/linuxscout/mishkal">github.com/linuxscout/mishkal</a> (GPL).</li>
-<li><b>Tashkeela</b> and the <b>Arabic Text Diacritization</b> corpus — training data for the statistical models. <a href="https://github.com/AliOsm/arabic-text-diacritization">github.com/AliOsm/arabic-text-diacritization</a>.</li>
-<li><b>libtashkeel</b> and the <b>Rawi ensemble</b> diacritizer &mdash; bundled from the <b>NabraTTS</b> NVDA add-on by <b>pbt</b>, generously shared by <b>Ilyas Dragonoid</b>. The Rawi vowelizer code in ClaritySynth is adapted from that add-on.</li>
-<li><b>NV Speech Player</b> — the Klatt-style formant approach behind the optional formant voices. Original by NV Access.</li>
-<li><b>ONNX Runtime</b> and <b>NumPy</b> — neural model inference (MIT / BSD).</li>
-<li>The English grapheme-to-phoneme fallback uses the CMU Pronouncing Dictionary. The formant synthesis engine is an original pure-Python implementation. Arabic phoneme and formant values were informed by published acoustic-phonetics studies of Arabic.</li>
+<li><b>Arabic voices</b> — extra Arabic acoustic models and Arabic Piper
+voices (for the Piper engine).</li>
+<li><b>Other-language voices</b> — Piper voices for many languages. Voices
+marked <b>RT streaming</b> are the fastest; others are higher quality but
+slower.</li>
+<li><b>Vocoders</b> — vocoders for the Mixer engine.</li>
+<li><b>Tashkeel libraries</b> — extra diacritizers (CATT, Shakkala,
+Shakkelha).</li>
+</ul>
+<p>Each voice downloads together with its configuration file. Press
+<b>Escape</b> to close the window. Downloaded items take effect the next time
+you switch to ClaritySynth, and they are stored outside the add-on folder, so
+updating or reinstalling ClaritySynth never deletes them. ClaritySynth also
+checks GitHub for new versions, shows the changelog, and can install an update
+for you.</p>
+
+<h2>The Formant synthesizer</h2>
+<p><b>ClaritySynth Formant</b> is a separate, lightweight synthesizer with no
+neural models. Its <b>Synthesis engine</b> setting lets you choose — and cycle
+through — several formant back-ends:</p>
+<ul>
+<li><b>Auto</b> — the best available.</li>
+<li><b>NV Speech Player</b> — a rich formant DSP engine.</li>
+<li><b>Built-in</b> — a pure-Python engine that always works.</li>
+<li><b>eSpeak NG</b> — a compact multilingual formant synthesizer. Choose the
+<b>eSpeak language</b> (Arabic and over a hundred others) and the <b>eSpeak
+variant</b> (voice timbres, including the classic Klatt voices).</li>
+</ul>
+<p>The Formant driver shares the same tashkeel libraries as the neural voice,
+and honors the same Rate, Rate boost, Pitch and Volume controls.</p>
+
+<h2>Settings reference</h2>
+<ul>
+<li><b>Primary voice engine</b> — Mixer or Piper (see above).</li>
+<li><b>Voice</b> — the Arabic speaker (Mixer) or Arabic Piper voice (Piper).</li>
+<li><b>Primary voice variant</b> — acoustic model for Mixer; not used for
+Piper (the voice itself is the full choice).</li>
+<li><b>Vocoder</b> — the vocoder for the Mixer engine.</li>
+<li><b>Secondary voice</b> / <b>Secondary voice variant</b> — the non-Arabic
+voice and its quality/speed tier.</li>
+<li><b>Tashkeel library</b> — the diacritizer (see above).</li>
+<li><b>Rate</b> and <b>Rate boost</b> — speaking speed; Rate boost raises the
+top speed substantially. Fast speech stays clear (pitch-preserving
+time-compression on the neural voices).</li>
+<li><b>Pitch</b> and <b>Volume</b> — behave identically across languages.</li>
+<li><b>Clarity</b> — reduces neural noise for a cleaner voice.</li>
 </ul>
 
-<h2>Author and license</h2>
-<p>ClaritySynth is developed by <b>Riad Assoum</b> — <a href="https://github.com/riadassoum">github.com/riadassoum</a>.</p>
-<p>Released under the GNU General Public License (GPL). Bundled components retain their own licenses as listed above.</p>
+<h2>Arabic phonology</h2>
+<p>ClaritySynth models correct tajweed, including ra&#700; tafkhim/tarqiq
+(heavy/light ر), emphatic consonants (ص ض ط ظ), pharyngeals (ح ع), uvulars
+(ق خ غ), hamzat al-wasl elision, tanween, and context-sensitive taa marbuta
+(ة). Reading by character announces Arabic letters and diacritic marks by
+their names.</p>
 
-<h2>Notes</h2>
+<h2>Troubleshooting</h2>
 <ul>
-<li>The neural voices require ONNX Runtime, which is bundled for NVDA's Python 3.13 (64-bit). If the neural runtime cannot load (for example due to a conflict with another add-on that bundles a different NumPy), ClaritySynth automatically falls back to the formant voices and writes the reason to the NVDA log.</li>
-<li>The neural models are large; the add-on may take a few seconds to initialize on first load.</li>
+<li><b>The neural voice will not start.</b> The neural engine needs the
+Microsoft Visual C++ Redistributable. If it is missing, ClaritySynth says so
+and explains how to install it; after installing it, restart NVDA.</li>
+<li><b>The Piper engine is not offered.</b> Download an Arabic Piper voice
+first (Tools &rarr; ClaritySynth &rarr; Voice &amp; model downloads &rarr; Arabic voices); the Piper
+engine appears once one is installed.</li>
+<li><b>A setting in the Formant driver seems missing.</b> Some settings apply
+only to a particular engine — for example the eSpeak language and variant
+apply only when the eSpeak engine is selected.</li>
 </ul>
+
+<h2>Credits</h2>
+<p>ClaritySynth builds on eSpeak NG, Piper/VITS voices (rhasspy, OpenVoiceOS /
+TigreGotico, and the Sonata project by Musharraf Omer for real-time voices),
+the Vocos vocoder, NV Speech Player, and Arabic diacritization and phonology
+models. Some downloadable models, vocoders and tashkeel libraries, and
+salvaged components, come by way of the NabraTTS add-on (by &quot;pbt&quot;,
+shared by Ilyas Dragonoid). Thanks to the users who reported issues and
+contributed pronunciation fixes.</p>
 </body>
 </html>

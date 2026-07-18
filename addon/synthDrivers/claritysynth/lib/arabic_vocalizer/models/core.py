@@ -6,15 +6,31 @@ from ..models import Shakkala, Shakkelha
 _MODEL_TYPE = Literal['shakkala', 'shakkelha']
 
 
+def _find_model_file(fname):
+    """Locate a diacritizer model file, checking the persistent ClaritySynth
+    download dir first (models are no longer bundled but work if downloaded),
+    then this package's own data/ folder."""
+    import os
+    # persistent user data dir, via the driver's data_paths if reachable
+    try:
+        import globalVars
+        base = os.path.join(globalVars.appArgs.configPath, "claritysynth")
+        for sub in (("tts_arabic", "data"), ("vowelizers",), ()):
+            cand = os.path.join(base, *sub, fname)
+            if os.path.exists(cand):
+                return cand
+    except Exception:
+        pass
+    pkg = Path(__file__).parent.parent.joinpath('data').joinpath(fname)
+    return pkg.as_posix()
+
+
 def get_model(model: _MODEL_TYPE = 'shakkelha'):
     assert model in ('shakkala', 'shakkelha')
-
-    data_folder = Path(__file__).parent.parent.joinpath('data')
-    
-    if model == 'shakkala':      
-        return Shakkala(sd_path=data_folder.joinpath('shakkala.onnx').as_posix())     
+    if model == 'shakkala':
+        return Shakkala(sd_path=_find_model_file('shakkala.onnx'))
     elif model == 'shakkelha':
-        return Shakkelha(sd_path=data_folder.joinpath('shakkelha.onnx').as_posix()) 
+        return Shakkelha(sd_path=_find_model_file('shakkelha.onnx'))
 
 
 def vocalize(input_text: Union[str, List[str]], 

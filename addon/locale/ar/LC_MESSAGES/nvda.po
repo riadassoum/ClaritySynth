@@ -1,0 +1,554 @@
+# ClaritySynth Arabic translation.
+# Copyright (C) 2026
+# This file is distributed under the same license as the ClaritySynth add-on.
+msgid ""
+msgstr ""
+"Project-Id-Version: ClaritySynth 2.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-17 00:00+0000\n"
+"PO-Revision-Date: 2026-07-17 00:00+0000\n"
+"Last-Translator: ClaritySynth\n"
+"Language-Team: Arabic\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=(n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
+"&& n%100<=10 ? 3 : n%100>=11 ? 4 : 5);\n"
+
+#. Translators: the name of the neural synthesizer driver.
+msgid "ClaritySynth Neural"
+msgstr "كلاريتي سينث العصبي"
+
+#. Translators: the name of the formant synthesizer driver.
+msgid "ClaritySynth Formant"
+msgstr "كلاريتي سينث الصياغي"
+
+#. Translators: Tashkeel (diacritization) library setting.
+msgid "&Tashkeel library (Arabic diacritization)"
+msgstr "&مكتبة التشكيل (تشكيل النص العربي)"
+
+msgid "Tashkeel library"
+msgstr "مكتبة التشكيل"
+
+msgid "Libtashkeel (recommended)"
+msgstr "ليب تشكيل (موصى بها)"
+
+msgid "Rawi ensemble"
+msgstr "مجموعة راوي"
+
+msgid "CATT"
+msgstr "كات"
+
+msgid "Off (read text as written)"
+msgstr "إيقاف (قراءة النص كما هو مكتوب)"
+
+#. Translators: primary (Arabic) voice variant selector.
+msgid "Primary voice &variant (quality/speed)"
+msgstr "&صيغة الصوت الأساسي (الجودة/السرعة)"
+
+msgid "Primary variant"
+msgstr "الصيغة الأساسية"
+
+#. Translators: secondary (non-Arabic) voice selector.
+msgid "&Secondary voice (non-Arabic: English, etc.)"
+msgstr "ال&صوت الثانوي (لغير العربية: الإنجليزية إلخ)"
+
+msgid "Secondary voice"
+msgstr "الصوت الثانوي"
+
+#. Translators: secondary voice variant selector.
+msgid "Secondary voice v&ariant (quality/speed)"
+msgstr "صي&غة الصوت الثانوي (الجودة/السرعة)"
+
+msgid "Secondary variant"
+msgstr "الصيغة الثانوية"
+
+msgid "Auto (best installed)"
+msgstr "تلقائي (أفضل المثبَّت)"
+
+msgid "Auto (default English)"
+msgstr "تلقائي (الإنجليزية الافتراضية)"
+
+msgid "Auto (prefer fastest)"
+msgstr "تلقائي (تفضيل الأسرع)"
+
+msgid "Fast (low quality, lowest latency)"
+msgstr "سريع (جودة منخفضة، أقل زمن استجابة)"
+
+msgid "Standard (higher quality, slower)"
+msgstr "قياسي (جودة أعلى، أبطأ)"
+
+msgid "Mixer 128 (standard, 4 speakers)"
+msgstr "ميكسر 128 (قياسي، 4 متحدثين)"
+
+msgid "Mixer 80 (faster)"
+msgstr "ميكسر 80 (أسرع)"
+
+msgid "FastPitch (high quality)"
+msgstr "فاست بيتش (جودة عالية)"
+
+#. Translators: %s is the model quality label.
+msgid "Arabic Neural %s - Speaker %d"
+msgstr "العربية العصبية %s - المتحدث %d"
+
+#. Translators: %s is the model quality label.
+msgid "Arabic Neural %s"
+msgstr "العربية العصبية %s"
+
+#. Translators: %d is the speaker number.
+msgid "Arabic Neural - Speaker %d"
+msgstr "العربية العصبية - المتحدث %d"
+
+msgid "Arabic Neural"
+msgstr "العربية العصبية"
+
+#. Translators: %s is the Piper voice name.
+msgid "Arabic Piper - %s"
+msgstr "بايبر العربية - %s"
+
+msgid "Rate boo&st (extra-fast speech)"
+msgstr "&تعزيز السرعة (نطق فائق السرعة)"
+
+msgid "&Breathiness"
+msgstr "ال&همس"
+
+msgid "&Roughness"
+msgstr "ال&خشونة"
+
+msgid "Rou&ghness"
+msgstr "الخ&شونة"
+
+msgid "&Head size"
+msgstr "&حجم الرأس"
+
+msgid "Stress &emphasis"
+msgstr "&توكيد النبر"
+
+msgid "&Clarity (noise reduction)"
+msgstr "ال&وضوح (تقليل الضوضاء)"
+
+msgid "Pause &length"
+msgstr "&طول التوقف"
+
+msgid "Pronounce &tanween on isolated words"
+msgstr "نطق ال&تنوين على الكلمات المنفردة"
+
+msgid "Use &neural Arabic diacritizer if available"
+msgstr "استخدام المشكِّل العربي ال&عصبي إن توفَّر"
+
+#. Translators: formant fallback voices.
+msgid "Adam (formant, low)"
+msgstr "آدم (صياغي، منخفض)"
+
+msgid "Clara (formant, high)"
+msgstr "كلارا (صياغي، مرتفع)"
+
+msgid "Robby (formant, robot)"
+msgstr "روبي (صياغي، آلي)"
+
+#. Translators: downloads window — Tools menu item.
+msgid "ClaritySynth voice && model downloads..."
+msgstr "تنزيلات أصوات ونماذج كلاريتي سينث..."
+
+msgid "Download extra Arabic voices, vocoders and tashkeel libraries for ClaritySynth"
+msgstr "تنزيل أصوات عربية إضافية ومحولات صوتية ومكتبات تشكيل لكلاريتي سينث"
+
+#. Translators: update check — Tools menu item.
+msgid "Check for ClaritySynth &updates..."
+msgstr "التحقق من &تحديثات كلاريتي سينث..."
+
+msgid "Check GitHub for a newer version of ClaritySynth"
+msgstr "التحقق من غيت هاب من وجود إصدار أحدث لكلاريتي سينث"
+
+msgid "ClaritySynth downloads"
+msgstr "تنزيلات كلاريتي سينث"
+
+msgid "Download extra voices, vocoders and tashkeel libraries. Voices marked \"RT streaming\" are the fastest. Installed items are marked. They take effect the next time you switch to ClaritySynth."
+msgstr "نزّل أصواتًا ومحولات صوتية ومكتبات تشكيل إضافية. الأصوات الموسومة بـ\"RT streaming\" هي الأسرع. العناصر المثبَّتة موسومة. تُطبَّق عند التبديل إلى كلاريتي سينث في المرة التالية."
+
+msgid "Ready."
+msgstr "جاهز."
+
+msgid "&Download selected"
+msgstr "&تنزيل المحدَّد"
+
+msgid "&Cancel download"
+msgstr "إ&لغاء التنزيل"
+
+msgid "Cl&ose"
+msgstr "إ&غلاق"
+
+msgid "[installed] "
+msgstr "[مثبَّت] "
+
+#. Translators: %s is the item description.
+msgid "Already installed: %s"
+msgstr "مثبَّت بالفعل: %s"
+
+#. Translators: %s is the item description.
+msgid "Downloading %s ..."
+msgstr "جارٍ تنزيل %s ..."
+
+#. Translators: %s is the item description.
+msgid "Installed: %s"
+msgstr "تم تثبيت: %s"
+
+msgid "Cancelled."
+msgstr "أُلغي."
+
+msgid "Cancelling..."
+msgstr "جارٍ الإلغاء..."
+
+msgid "Download failed. Check your internet connection and try again."
+msgstr "فشل التنزيل. تحقق من اتصالك بالإنترنت وحاول مرة أخرى."
+
+#. Translators: %s is the error message.
+msgid "Error: %s"
+msgstr "خطأ: %s"
+
+msgid "ClaritySynth is up to date."
+msgstr "كلاريتي سينث محدَّث."
+
+msgid "ClaritySynth update"
+msgstr "تحديث كلاريتي سينث"
+
+msgid "ClaritySynth update available"
+msgstr "يتوفَّر تحديث لكلاريتي سينث"
+
+#. Translators: {ver} is the version, {changelog} the release notes.
+msgid ""
+"A new version of ClaritySynth is available: {ver}\n"
+"\n"
+"What's new:\n"
+"{changelog}\n"
+"\n"
+"Open the download page now?"
+msgstr ""
+"يتوفَّر إصدار جديد من كلاريتي سينث: {ver}\n"
+"\n"
+"الجديد:\n"
+"{changelog}\n"
+"\n"
+"هل تريد فتح صفحة التنزيل الآن؟"
+
+msgid "(no changelog provided)"
+msgstr "(لا يوجد سجل تغييرات)"
+
+#. Translators: download progress detail with elapsed and remaining time.
+msgid "%(pct)d%%  -  %(got)s of %(total)s  -  elapsed %(el)s, remaining %(rem)s"
+msgstr "%(pct)d%%  -  %(got)s من %(total)s  -  مضى %(el)s، يتبقى %(rem)s"
+
+#. Translators: download progress when total size is unknown.
+msgid "%(got)s downloaded  -  elapsed %(el)s"
+msgstr "تم تنزيل %(got)s  -  مضى %(el)s"
+
+msgid "Updating ClaritySynth"
+msgstr "جارٍ تحديث كلاريتي سينث"
+
+#. Translators: %s is the version.
+msgid "Downloading version %s ..."
+msgstr "جارٍ تنزيل الإصدار %s ..."
+
+#. Translators: %.1f are megabytes downloaded and total.
+msgid "Downloaded %.1f of %.1f MB"
+msgstr "تم تنزيل %.1f من %.1f ميغابايت"
+
+#. Translators: %.1f is megabytes downloaded.
+msgid "Downloaded %.1f MB"
+msgstr "تم تنزيل %.1f ميغابايت"
+
+#. Translators: {ver} version, {changelog} notes — direct install prompt.
+msgid ""
+"A new version of ClaritySynth is available: {ver}\n"
+"\n"
+"What's new:\n"
+"{changelog}\n"
+"\n"
+"Download and install it now?"
+msgstr ""
+"يتوفَّر إصدار جديد من كلاريتي سينث: {ver}\n"
+"\n"
+"الجديد:\n"
+"{changelog}\n"
+"\n"
+"هل تريد تنزيله وتثبيته الآن؟"
+
+msgid "Update installed"
+msgstr "تم تثبيت التحديث"
+
+msgid ""
+"ClaritySynth has been updated. NVDA must restart to finish. Restart now?"
+msgstr "تم تحديث كلاريتي سينث. يجب إعادة تشغيل NVDA لإتمام العملية. إعادة التشغيل الآن؟"
+
+#. Translators: Tools menu item for the batch diacritization window.
+msgid "Diacritize Arabic text (&tashkeel)..."
+msgstr "تشكيل نص عربي (&تشكيل)..."
+
+msgid "Add diacritics to Arabic text using a chosen tashkeel library, whatever synthesizer is active"
+msgstr "إضافة التشكيل إلى نص عربي باستخدام مكتبة تشكيل مختارة، أيًّا كان الناطق المُفعَّل"
+
+msgid "Diacritize Arabic text"
+msgstr "تشكيل نص عربي"
+
+msgid "Enter or paste Arabic text of any length, choose a tashkeel library, and press Diacritize. The result appears below, ready to copy. This works no matter which synthesizer you are using."
+msgstr "أدخل أو الصق نصًّا عربيًّا بأي طول، واختر مكتبة تشكيل، ثم اضغط تشكيل. تظهر النتيجة في الأسفل جاهزة للنسخ. يعمل هذا أيًّا كان الناطق الذي تستخدمه."
+
+msgid "&Text to diacritize:"
+msgstr "ال&نص المراد تشكيله:"
+
+msgid "Tashkeel &library:"
+msgstr "&مكتبة التشكيل:"
+
+msgid "&Diacritize"
+msgstr "&تشكيل"
+
+msgid "&Result:"
+msgstr "ال&نتيجة:"
+
+msgid "C&opy result"
+msgstr "&نسخ النتيجة"
+
+msgid "Please enter some Arabic text first."
+msgstr "الرجاء إدخال نص عربي أولاً."
+
+msgid "Diacritizing..."
+msgstr "جارٍ التشكيل..."
+
+#. Translators: %(done)d and %(total)d are counts of processed pieces.
+msgid "Diacritizing... %(done)d of %(total)d"
+msgstr "جارٍ التشكيل... %(done)d من %(total)d"
+
+msgid "Done."
+msgstr "تمّ."
+
+msgid "Result copied to the clipboard."
+msgstr "تم نسخ النتيجة إلى الحافظة."
+
+msgid "Could not copy to the clipboard."
+msgstr "تعذّر النسخ إلى الحافظة."
+
+#. Translators: Tools menu item for the batch diacritization window.
+msgid "Diacritize Arabic text (&tashkeel)..."
+msgstr "تشكيل النص العربي (&تشكيل)..."
+
+msgid "Add diacritics to Arabic text using a chosen tashkeel library, whatever synthesizer is active"
+msgstr "إضافة التشكيل إلى النص العربي باستخدام مكتبة تشكيل مختارة، مهما كان المركّب الصوتي النشط"
+
+msgid "Diacritize Arabic text"
+msgstr "تشكيل النص العربي"
+
+msgid "Enter or paste Arabic text of any length, choose a tashkeel library, and press Diacritize. The result appears below, ready to copy. This works no matter which synthesizer you are using."
+msgstr "أدخل أو الصق نصًا عربيًا بأي طول، واختر مكتبة تشكيل، ثم اضغط تشكيل. تظهر النتيجة أدناه جاهزة للنسخ. يعمل هذا مهما كان المركّب الصوتي الذي تستخدمه."
+
+msgid "&Text to diacritize:"
+msgstr "ال&نص المراد تشكيله:"
+
+msgid "Tashkeel &library:"
+msgstr "&مكتبة التشكيل:"
+
+msgid "&Diacritize"
+msgstr "&تشكيل"
+
+msgid "&Result:"
+msgstr "ال&نتيجة:"
+
+msgid "C&opy result"
+msgstr "&نسخ النتيجة"
+
+msgid "Please enter some Arabic text first."
+msgstr "الرجاء إدخال نص عربي أولاً."
+
+msgid "Diacritizing..."
+msgstr "جارٍ التشكيل..."
+
+#. Translators: %(done)d of %(total)d units processed.
+msgid "Diacritizing... %(done)d of %(total)d"
+msgstr "جارٍ التشكيل... %(done)d من %(total)d"
+
+msgid "Done."
+msgstr "تم."
+
+msgid "Result copied to the clipboard."
+msgstr "تم نسخ النتيجة إلى الحافظة."
+
+msgid "Could not copy to the clipboard."
+msgstr "تعذّر النسخ إلى الحافظة."
+
+msgid "The tashkeel libraries are unavailable. Make sure ClaritySynth is installed."
+msgstr "مكتبات التشكيل غير متوفرة. تأكد من تثبيت كلاريتي سينث."
+
+#. Translators: neural diacritizer library names.
+msgid "Shakkelha (neural)"
+msgstr "شكّلها (عصبي)"
+
+msgid "Shakkala (neural)"
+msgstr "شكّالة (عصبي)"
+
+#. Translators: Formant synthesis engine chooser.
+msgid "Synthesis &engine"
+msgstr "&محرّك التركيب"
+
+msgid "Engine"
+msgstr "المحرّك"
+
+msgid "Auto (best available)"
+msgstr "تلقائي (الأفضل المتاح)"
+
+msgid "NV Speech Player (richer DSP)"
+msgstr "NV Speech Player (معالجة أغنى)"
+
+msgid "Built-in (pure Python)"
+msgstr "المدمج (بايثون خالص)"
+
+#. Translators: primary voice engine selector.
+msgid "Primary voice &engine"
+msgstr "&محرّك الصوت الرئيسي"
+
+msgid "Primary engine"
+msgstr "المحرّك الرئيسي"
+
+msgid "Mixer (multi-speaker Arabic)"
+msgstr "Mixer (عربي متعدّد المتحدّثين)"
+
+msgid "Piper (Arabic Piper voices)"
+msgstr "Piper (أصوات Piper العربية)"
+
+#. Translators: vocoder selector (Mixer engine only).
+msgid "Primary voice v&ocoder (Mixer only)"
+msgstr "&مُرمِّز الصوت الرئيسي (لـ Mixer فقط)"
+
+msgid "Vocoder"
+msgstr "المُرمِّز الصوتي"
+
+msgid "Auto (recommended)"
+msgstr "تلقائي (مُستحسَن)"
+
+msgid "Vocos 22 kHz (recommended)"
+msgstr "Vocos 22 كيلوهرتز (مُستحسَن)"
+
+msgid "Vocos 44 kHz (higher fidelity)"
+msgstr "Vocos 44 كيلوهرتز (جودة أعلى)"
+
+msgid "HiFi-GAN"
+msgstr "HiFi-GAN"
+
+msgid "Auto (best tier)"
+msgstr "تلقائي (أفضل مستوى)"
+
+msgid "Extra low (fastest)"
+msgstr "منخفض جدًا (الأسرع)"
+
+msgid "Low (fast)"
+msgstr "منخفض (سريع)"
+
+msgid "Medium (standard)"
+msgstr "متوسط (قياسي)"
+
+msgid "High (best)"
+msgstr "عالٍ (الأفضل)"
+
+msgid "(no Arabic Piper voice installed)"
+msgstr "(لا يوجد صوت Piper عربي مثبَّت)"
+
+#. Translators: download window tab titles.
+msgid "Arabic voices"
+msgstr "الأصوات العربية"
+
+msgid "Other-language voices"
+msgstr "أصوات اللغات الأخرى"
+
+msgid "Vocoders"
+msgstr "المُرمِّزات الصوتية"
+
+msgid "Tashkeel libraries"
+msgstr "مكتبات التشكيل"
+
+msgid "Download extra voices, vocoders and tashkeel libraries, grouped into tabs below. Voices marked \"RT streaming\" are the fastest. Installed items are marked. They take effect the next time you switch to ClaritySynth."
+msgstr "نزّل أصواتًا ومُرمِّزات ومكتبات تشكيل إضافية، مُجمَّعة في تبويبات أدناه. الأصوات المُعلَّمة بـ \"بث فوري\" هي الأسرع. العناصر المثبَّتة مُعلَّمة. تُطبَّق في المرة التالية التي تنتقل فيها إلى كلاريتي سينث."
+
+#. Translators: salvaged Arabic Piper voice names.
+msgid "Arabic - Qatar (multi-speaker; usable as primary)"
+msgstr "العربية - قطر (متعدّد المتحدّثين؛ يصلح كصوت رئيسي)"
+
+msgid "Arabic - Emirati female (UAE; usable as primary)"
+msgstr "العربية - إماراتية أنثى (الإمارات؛ يصلح كصوت رئيسي)"
+
+msgid "Arabic - Miro (Saudi; usable as primary)"
+msgstr "العربية - ميرو (السعودية؛ يصلح كصوت رئيسي)"
+
+msgid "Arabic - Dii (Saudi; usable as primary)"
+msgstr "العربية - دي (السعودية؛ يصلح كصوت رئيسي)"
+
+#. Translators: shown for the primary variant when the Piper engine is active.
+msgid "Not applicable (choose the voice above)"
+msgstr "غير منطبق (اختر الصوت أعلاه)"
+
+#. Translators: eSpeak formant engine option and language selector.
+msgid "eSpeak NG (multilingual formant)"
+msgstr "eSpeak NG (فورمنت متعدد اللغات)"
+
+msgid "eSpeak &language (eSpeak engine only)"
+msgstr "&لغة eSpeak (لمحرك eSpeak فقط)"
+
+msgid "eSpeak language"
+msgstr "لغة eSpeak"
+
+msgid "Arabic"
+msgstr "العربية"
+
+msgid "English (US)"
+msgstr "الإنجليزية (أمريكية)"
+
+msgid "English (UK)"
+msgstr "الإنجليزية (بريطانية)"
+
+msgid "French"
+msgstr "الفرنسية"
+
+msgid "Spanish"
+msgstr "الإسبانية"
+
+msgid "German"
+msgstr "الألمانية"
+
+msgid "Italian"
+msgstr "الإيطالية"
+
+msgid "Russian"
+msgstr "الروسية"
+
+msgid "Turkish"
+msgstr "التركية"
+
+msgid "Persian"
+msgstr "الفارسية"
+
+msgid "Urdu"
+msgstr "الأردية"
+
+#. Translators: Formant rate boost and eSpeak variant settings.
+msgid "Rate boos&t"
+msgstr "&تعزيز السرعة"
+
+msgid "eSpeak &voice variant (eSpeak engine only)"
+msgstr "&نوع صوت eSpeak (لمحرك eSpeak فقط)"
+
+msgid "eSpeak variant"
+msgstr "نوع صوت eSpeak"
+
+msgid "None (default timbre)"
+msgstr "بلا (النبرة الافتراضية)"
+
+msgid "None"
+msgstr "بلا"
+
+#. Translators: the ClaritySynth submenu under the NVDA Tools menu.
+msgid "Clarity&Synth"
+msgstr "كلاريتي&سينث"
+
+msgid "Voice && model &downloads..."
+msgstr "&تنزيل الأصوات والنماذج..."
+
+msgid "Check for &updates..."
+msgstr "التحقق من ال&تحديثات..."

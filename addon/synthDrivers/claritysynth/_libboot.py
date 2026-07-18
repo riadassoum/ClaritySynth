@@ -70,14 +70,30 @@ def boot():
         # numpy's compiled DLLs live in numpy.libs / numpy/_core; make sure
         # Windows can find them
         if hasattr(os, "add_dll_directory"):
-            for sub in ("numpy.libs", os.path.join("numpy", "_core"),
-                        os.path.join("onnxruntime", "capi")):
-                p = os.path.join(_LIB, sub)
+            # Order matters: numpy.libs holds msvcp140, and onnxruntime/capi
+            # holds the ORT natives (plus a copy of msvcp140 we bundle so ORT
+            # loads even without the system VC++ redistributable installed).
+            for sub in ("numpy.libs",
+                        os.path.join("numpy", "_core"),
+                        os.path.join("numpy", ".libs"),
+                        os.path.join("onnxruntime", "capi"),
+                        ""):                       # lib/ itself
+                p = os.path.join(_LIB, sub) if sub else _LIB
                 if os.path.isdir(p):
                     try:
                         os.add_dll_directory(p)
                     except Exception:
                         pass
+            # Also register the PATH env fallback for older loaders that do
+            # not honour add_dll_directory for transitive dependencies.
+            try:
+                extra = os.pathsep.join(
+                    os.path.join(_LIB, s) for s in
+                    ("numpy.libs", os.path.join("onnxruntime", "capi")))
+                os.environ["PATH"] = extra + os.pathsep + \
+                    os.environ.get("PATH", "")
+            except Exception:
+                pass
         # 3. import ours explicitly
         if not good_np:
             _purge("numpy")

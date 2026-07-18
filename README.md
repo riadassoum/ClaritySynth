@@ -1,49 +1,13 @@
 # ClaritySynth
 
-A bilingual (Arabic & English) **neural speech synthesizer** add-on for the [NVDA](https://www.nvaccess.org/) screen reader.
+A neural, Arabic-first, multilingual speech synthesizer add-on for the NVDA screen reader.
 
-ClaritySynth combines natural neural voices for both Arabic and English, automatic Arabic diacritization (tashkeel), tajweed-aware Arabic phonology, and automatic language switching within a single sentence — plus a lightweight formant synthesizer included as a separate, always-available driver.
+Mixer and Piper primary voice engines with automatic diacritization (tashkeel), downloadable Arabic and multilingual Piper voices, and a lightweight Formant driver offering NV Speech Player, a pure-Python engine, and eSpeak NG (multilingual formant, including Arabic and the classic Klatt voices).
 
-## Features
+All ClaritySynth tools live under a **ClaritySynth** submenu in NVDA's Tools menu.
 
-- **Four neural Arabic voices** (MixerTTS-128 + Vocos, 22.05 kHz).
-- **Neural English voice** (Piper / VITS), phonemized directly through bundled eSpeak NG — no heavy dependencies.
-- **Automatic diacritization** — undiacritized Arabic is vocalized by a neural model (Shakkelha) with a large statistical fallback; already-diacritized text is preserved.
-- **Automatic language switching** — Arabic and English in one sentence are each spoken by the right voice; numbers are read in the surrounding language's words.
-- **Reliable fast speech** — speed comes from pitch-preserving, glitch-free time-compression (WSOLA), so voices never drop or slur phonemes even when sped up. Optional **Rate boost** checkbox.
-- **Normalized controls** — Rate, Pitch, and Volume behave identically across both languages.
-- **Character navigation** — Arabic and English letters announced by name.
-- **Separate formant synthesizer** (`ClaritySynth Formant`) — three pure-Python voices, tiny and always available, with optional DLL DSP and the diacritizer toggle.
+## Install
+Download the latest `claritySynth-*.nvda-addon` from Releases (or `dist/`) and open it with NVDA. Then press **NVDA+Ctrl+S** and choose **ClaritySynth Neural** or **ClaritySynth Formant**.
 
-## Installation
-
-1. Download the latest `claritySynth-<version>.nvda-addon` from the [Releases](../../releases) page.
-2. Open it with NVDA (or NVDA menu → Tools → Add-on store → Install from external source).
-3. Restart NVDA when prompted.
-4. In NVDA → Preferences → Settings → Speech (`NVDA+Ctrl+V`), set the synthesizer to **ClaritySynth** and pick an **Arabic Neural** voice.
-
-## Building from source
-
-The add-on is the contents of the `addon/` folder packaged as a ZIP renamed to `.nvda-addon`:
-
-```bash
-python build.py
-```
-
-This produces `claritySynth-<version>.nvda-addon` in the project root.
-
-## Credits
-
-ClaritySynth builds on many open-source projects — see the in-app documentation (`addon/doc/en/readme.html`) for the full credits list, including tts_arabic, arabic_vocalizer, Shakkelha, Piper, eSpeak NG, Mishkal, Tashkeela, NV Speech Player, and ONNX Runtime.
-
-## Acknowledgements
-
-Thanks to **Ilyas Dragonoid** for sharing the **NabraTTS** add-on (by **pbt**), from which ClaritySynth bundles the **libtashkeel** engine and the **Rawi ensemble** diacritizer, and on which its Rawi support and parts of its Arabic text cleanup are based.
-
-## Author
-
-**Riad Assoum** — [github.com/riadassoum](https://github.com/riadassoum)
-
-## License
-
-Released under the GNU General Public License (GPL). Bundled components retain their own licenses as described in the in-app documentation.
+## Build from source
+`python build.py` compiles translations and writes `dist/claritySynth-<version>.nvda-addon`. Options: `--clean`, `--out DIR`.

@@ -1002,13 +1002,27 @@ _AR_NOISE_RE = re.compile(r"[-_=*~`|\\<>{}]{3,}")
 _AR_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 
 
+# Quranic ornate brackets ﴿﴾ and waqf/pause signs (U+06D6..U+06ED, U+08xx)
+# are visual ornaments that some diacritizers mishandle. Remove them before
+# processing so text after an ayah still gets diacritized. NOTE: the
+# superscript alef U+0670 is NOT removed — it affects pronunciation.
+_QURANIC_ORNAMENTS_RE = re.compile(
+    "[\uFD3E\uFD3F]"            # ornate parentheses ﴿ ﴾
+    "|[\u06D6-\u06DC]"          # small high waqf marks ۖ ۗ ۘ ۙ ۚ ۛ ۜ
+    "|[\u06DD-\u06ED]"          # other Quranic annotation signs
+    "|[\u0615-\u061A]"          # small high signs
+)
+
+
 def clean_arabic_text(text):
     """Tidy an Arabic run before diacritization/synthesis: drop emoji and
-    decorative runs, and speak stray symbols as Arabic words. URLs and
-    English words are intentionally left alone — ClaritySynth speaks them
-    with its English voice instead of hiding or transliterating them."""
+    decorative runs, strip Quranic ornaments that confuse diacritizers, and
+    speak stray symbols as Arabic words. URLs and English words are
+    intentionally left alone — ClaritySynth speaks them with its English
+    voice instead of hiding or transliterating them."""
     if not text:
         return text
+    text = _QURANIC_ORNAMENTS_RE.sub("", text)
     text = _AR_NOISE_RE.sub(" ", text)
     text = _AR_EMOJI_RE.sub(" ", text)
     for sym, word in _AR_SYMBOL_MAP.items():
@@ -1090,41 +1104,65 @@ def _neural_pre(text):
             try:
                 import re as _re
                 toks = _re.split(r"(\s+)", clean)
-                need = []
-                for i, tok in enumerate(toks):
-                    if not tok or tok.isspace():
-                        continue
+                # find CONTIGUOUS runs of bare words (ignoring whitespace) so
+                # each run is diacritized with its own local context, then
+                # spliced back by position. This is robust to brackets,
+                # braces and digits inside the text (e.g. a Quran citation),
+                # which previously broke a single whole-clause alignment and
+                # left everything after the ayah un-diacritized.
+                def _bare(tok):
                     wl = sum(1 for c in tok if "\u0621" <= c <= "\u064A")
                     wm = sum(1 for c in tok if "\u064B" <= c <= "\u0652")
-                    if wl >= 2 and wm < wl * 0.4:
-                        need.append(i)
-                if not need:
-                    return clean
-                # one full-context pass over the whole clause
-                whole = _diacritize(clean)
-                filled = None
-                if whole:
-                    w_toks = _re.split(r"(\s+)", whole)
-                    # align only if the tokenization matches 1:1
-                    if len(w_toks) == len(toks):
-                        filled = w_toks
-                out_words = []
-                for i, tok in enumerate(toks):
-                    if i in need and filled is not None:
-                        cand = filled[i]
-                        base_o = _strip_marks(tok)
-                        base_c = _strip_marks(cand)
-                        # accept only if it is the same word, better marked
-                        if (base_c == base_o
-                                and sum(1 for c in cand
-                                        if "\u064B" <= c <= "\u0652")
-                                > sum(1 for c in tok
-                                      if "\u064B" <= c <= "\u0652")):
-                            out_words.append(cand)
+                    return wl >= 2 and wm < wl * 0.4
+
+                out_words = list(toks)
+                i = 0
+                n = len(toks)
+                changed = False
+                while i < n:
+                    tok = toks[i]
+                    if not tok or tok.isspace() or not _bare(tok):
+                        i += 1
+                        continue
+                    # gather a run: bare words + the whitespace between them
+                    j = i
+                    run_idx = []
+                    while j < n:
+                        tj = toks[j]
+                        if tj.isspace():
+                            j += 1
                             continue
-                    out_words.append(tok)
+                        if _bare(tj):
+                            run_idx.append(j)
+                            j += 1
+                        else:
+                            break
+                    # the raw substring spanning this run (with its spaces)
+                    run_text = "".join(toks[i:j])
+                    diac = _diacritize(run_text)
+                    if diac:
+                        # map diacritized words back onto the bare tokens by
+                        # matching stripped skeletons in order
+                        d_words = [w for w in _re.split(r"\s+", diac) if w]
+                        di = 0
+                        for k in run_idx:
+                            base_o = _strip_marks(toks[k])
+                            # advance di to the matching skeleton
+                            while (di < len(d_words)
+                                   and _strip_marks(d_words[di]) != base_o):
+                                di += 1
+                            if di < len(d_words):
+                                cand = d_words[di]
+                                if (sum(1 for c in cand
+                                        if "\u064B" <= c <= "\u0652")
+                                        > sum(1 for c in toks[k]
+                                              if "\u064B" <= c <= "\u0652")):
+                                    out_words[k] = cand
+                                    changed = True
+                                di += 1
+                    i = j
                 merged = "".join(out_words)
-                if merged:
+                if merged and changed:
                     return merged
             except Exception:
                 pass

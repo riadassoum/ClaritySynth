@@ -48,15 +48,30 @@ def get_model_path(package_path: Optional[Path] = None,
     return model_path.as_posix()
 
 
+def _resolve(name, explicit_dir, package_path):
+    """Path to a model file: prefer an explicit directory (e.g. the
+    persistent user data dir) if it holds the file, else fall back to the
+    normal package lookup (which may download)."""
+    if explicit_dir is not None:
+        from os.path import join, exists
+        fname = files_dict[name]['file'].split('/')[-1]
+        cand = join(str(explicit_dir), fname)
+        if exists(cand):
+            return cand
+    return get_model_path(package_path, name)
+
+
 def get_model(model_id: _MODEL_ID = 'fastpitch',
               vocoder_id: _VOCODER_ID = 'hifigan',
-              cuda: bool = True
+              cuda: bool = True,
+              model_dir=None,
+              vocoder_dir=None,
               ) -> FastPitch2Wave:
     package_path = Path(__file__).parent.parent
 
-    fastpitch_path = get_model_path(package_path, model_id)
-    hifigan_path = get_model_path(package_path, vocoder_id)
-    denoiser_path = get_model_path(package_path, 'denoiser') \
+    fastpitch_path = _resolve(model_id, model_dir, package_path)
+    hifigan_path = _resolve(vocoder_id, vocoder_dir, package_path)
+    denoiser_path = _resolve('denoiser', vocoder_dir, package_path) \
         if vocoder_id == 'hifigan' else None
 
     tts_model = FastPitch2Wave(
