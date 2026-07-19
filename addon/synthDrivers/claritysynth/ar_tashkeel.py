@@ -123,7 +123,82 @@ _HAMZA_BASE = {
 }
 
 
-def _restore_hamza(original, diacritized):
+def _fix_naa_pronoun(original, diacritized):
+    """Fix the 1st-person-plural ـنا ending (بيتنا, صديقنا, كتابنا) when a
+    diacritizer mistakes it for a tanween-bearing alif.
+
+    Tanween-fath is written mark+alif (ـًا), which to a model can look like a
+    word that ends in a bare alif. So a word whose ORIGINAL (undiacritized)
+    form ends in ن+ا (nun + alif) sometimes comes back with a TANWEEN on the
+    letter before the alif and the نـ swallowed — صديقنا read as صديقًا
+    ('sadeeqan') or صديقٌ instead of صديقُنا ('sadeequnaa'). Every backend
+    except Libtashkeel has shown this.
+
+    The rule is safe and purely corrective: only when the raw word truly ends
+    in ـنا do we (a) strip any tanween that landed on the tail, and (b)
+    guarantee an explicit ن + ا with a fatha on the ن if it lost its vowel.
+    Words that do not end in ـنا are left completely untouched."""
+    if not original or not diacritized:
+        return diacritized
+    NUN = "\u0646"
+    ALIF = "\u0627"
+    FATHA = "\u064E"
+    TANWEENS = ("\u064B", "\u064C", "\u064D")
+    MARKS = set("\u064B\u064C\u064D\u064E\u064F\u0650\u0651\u0652\u0670")
+
+    def _bare(s):
+        return "".join(c for c in s if c not in MARKS)
+
+    def fix_word(o, d):
+        ob = _bare(o)
+        # must end in nun + alif in the original skeleton
+        if not (ob.endswith(NUN + ALIF)):
+            return d
+        chars = list(d)
+        # find index of the last ALIF
+        try:
+            ai = len(chars) - 1 - chars[::-1].index(ALIF)
+        except ValueError:
+            return d
+        # collect the marks immediately before that alif
+        j = ai - 1
+        marks_before_alif = []
+        while j >= 0 and chars[j] in MARKS:
+            marks_before_alif.append(chars[j])
+            j -= 1
+        if j < 0:
+            return d
+        if chars[j] != NUN:
+            # the nun was swallowed / replaced — likely a tanween-alif.
+            # Strip trailing tanweens on the tail letter and append نَا.
+            head = [c for c in chars[:j + 1] if c not in TANWEENS]
+            return "".join(head) + NUN + FATHA + ALIF
+        # nun IS present. (a) it must carry a real (non-tanween) vowel — a
+        # fatha if it lost one; (b) the consonant BEFORE the nun must not
+        # carry a tanween (a mid-word letter never takes tanween).
+        marks_before_alif = [m for m in marks_before_alif if m not in TANWEENS]
+        if not marks_before_alif:
+            marks_before_alif = [FATHA]
+        # strip a tanween sitting on the letter(s) just before the nun
+        pre = chars[:j]              # everything before the nun
+        pre = [c for c in pre if c not in TANWEENS]
+        new = pre + [NUN] + list(reversed(marks_before_alif)) + [ALIF] \
+            + chars[ai + 1:]
+        return "".join(new)
+
+    # apply word by word, aligning on whitespace
+    o_words = original.split(" ")
+    d_words = diacritized.split(" ")
+    if len(o_words) != len(d_words):
+        # counts differ (diacritizer merged/split) — fall back to a global
+        # single-word fix only when the whole thing is one token
+        if len(o_words) == 1 and len(d_words) == 1:
+            return fix_word(original, diacritized)
+        return diacritized
+    return " ".join(fix_word(o, d) for o, d in zip(o_words, d_words))
+
+
+
     """Safety net for models whose vocabulary has no composed hamza letters
     (Rawi). Given full context they reproduce hamza correctly, but a short
     or isolated word can come back flattened (سأل -> سَالْ, مؤمن -> مومن).
@@ -401,7 +476,11 @@ def diacritize_strict(text, backend=None):
             d = fn(chunk)                 # WHOLE run -> full context
         except Exception:
             d = None
-        out.append(d if (d and isinstance(d, str) and d.strip()) else chunk)
+        if d and isinstance(d, str) and d.strip():
+            d = _fix_naa_pronoun(chunk, d)
+            out.append(d)
+        else:
+            out.append(chunk)
     return "".join(out)
 
 
@@ -418,7 +497,7 @@ def diacritize_text(text):
         try:
             out = fn(text)
             if out and any("\u064B" <= c <= "\u0652" for c in out):
-                return out
+                return _fix_naa_pronoun(text, out)
         except Exception:
             _cache[name] = False      # never retry a broken backend
     return None

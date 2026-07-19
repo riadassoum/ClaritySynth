@@ -67,16 +67,41 @@ except ImportError:
 
 # Optional: the NV Speech Player DLL engine (higher-quality formant DSP),
 # same as the main driver uses. Falls back to the pure-Python engine.
+#
+# IMPORTANT: the DLL is loaded LAZILY (first time it is actually used to
+# synthesize), NOT at import. Loading a native DLL at import runs the instant
+# the synth is selected, and on PORTABLE NVDA a fault there closes NVDA with
+# no chance to warn. Lazy loading keeps synth selection safe.
 _dllBridge = None
-try:
-    _dll_engine = importlib.import_module("dll_engine")
-    _dllBridge = _dll_engine.Bridge()
-    log.info("ClaritySynth Formant: NV Speech Player DLL engine loaded")
-except Exception:
-    _dllBridge = None
-    log.debugWarning(
-        "ClaritySynth Formant: NV Speech Player DLL unavailable, "
-        "using built-in engine", exc_info=True)
+_dllBridge_tried = False
+
+
+def _dll_present():
+    """Cheap check (no DLL load) for whether the speechPlayer DLL ships, so
+    the engine list can offer it without loading it on the GUI thread."""
+    try:
+        arch = "x64" if sys.maxsize > 2 ** 32 else "x86"
+        return os.path.exists(os.path.join(
+            _MAIN, "sp", arch, "speechPlayer.dll"))
+    except Exception:
+        return False
+
+
+def _get_dll_bridge():
+    global _dllBridge, _dllBridge_tried
+    if _dllBridge_tried:
+        return _dllBridge
+    _dllBridge_tried = True
+    try:
+        _dll_engine = importlib.import_module("dll_engine")
+        _dllBridge = _dll_engine.Bridge()
+        log.info("ClaritySynth Formant: NV Speech Player DLL engine loaded")
+    except Exception:
+        _dllBridge = None
+        log.debugWarning(
+            "ClaritySynth Formant: NV Speech Player DLL unavailable, "
+            "using built-in engine", exc_info=True)
+    return _dllBridge
 
 # Optional: the eSpeak NG multilingual formant voice (loose module in the
 # claritysynth dir, on sys.path as _MAIN).
@@ -267,7 +292,7 @@ class SynthDriver(_BaseSynthDriver):
     def _get_availableEngines(self):
         out = OrderedDict()
         out["auto"] = StringParameterInfo("auto", _("Auto (best available)"))
-        if _dllBridge is not None:
+        if _dll_present():
             out["dll"] = StringParameterInfo(
                 "dll", _("NV Speech Player (richer DSP)"))
         out["builtin"] = StringParameterInfo(
@@ -584,12 +609,12 @@ class SynthDriver(_BaseSynthDriver):
                     # else built-in; dll -> force DLL if present; builtin ->
                     # always the pure-Python engine
                     _eng = self._get_engine()
-                    if _eng == "builtin" or _dllBridge is None:
+                    _b = _get_dll_bridge() if _eng in ("auto", "dll") \
+                        else None
+                    if _eng == "builtin" or _b is None:
                         _synth = engine.synthesize
-                    elif _eng == "dll":
-                        _synth = _dllBridge.synthesize
-                    else:  # auto
-                        _synth = _dllBridge.synthesize
+                    else:
+                        _synth = _b.synthesize
                     gen = _synth(
                         tokens, dscale=self._durationScale(),
                         base_f0=self._baseF0(pitchOffset),

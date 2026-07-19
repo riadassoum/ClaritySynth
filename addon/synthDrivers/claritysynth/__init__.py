@@ -170,13 +170,30 @@ def _ensure_engines():
 
 
 _bridge = None
-try:
-    from . import dll_engine
-    _bridge = dll_engine.Bridge()
-    log.info("ClaritySynth: speechPlayer.dll bridge active")
-except Exception:
-    log.debugWarning("ClaritySynth: DLL bridge unavailable; pure engine",
-                     exc_info=True)
+_bridge_tried = False
+
+
+def _get_bridge():
+    """Lazily load the NV Speech Player DLL bridge the first time it is
+    actually needed (a formant-fallback synthesis). Loading it at import
+    time is unsafe on some setups — notably PORTABLE NVDA — where a native
+    DLL load can fault and take NVDA down the instant the synth is selected,
+    with no chance to speak a warning. Loading lazily on the worker thread
+    keeps synth SELECTION safe; if the DLL is unavailable we simply fall
+    back to the pure-Python formant engine."""
+    global _bridge, _bridge_tried
+    if _bridge_tried:
+        return _bridge
+    _bridge_tried = True
+    try:
+        from . import dll_engine
+        _bridge = dll_engine.Bridge()
+        log.info("ClaritySynth: speechPlayer.dll bridge active")
+    except Exception:
+        _bridge = None
+        log.debugWarning("ClaritySynth: DLL bridge unavailable; pure engine",
+                         exc_info=True)
+    return _bridge
 
 
 def _outputDevice():
@@ -1264,7 +1281,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         except Exception:
             log.debugWarning("ClaritySynth: feed failed", exc_info=True)
 
-    def _speakMixedNeural(self, text, pitchOffset=0):
+    def _speakMixedNeural(self, text, pitchOffset=0, pre_diacritized=False):
         """Speak mixed Arabic/English with NO inter-segment latency:
         pre-synthesize every run to PCM (unified sample rate), then play
         the concatenated audio through a single player. Arabic uses the
@@ -1329,7 +1346,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                     break
                 try:
                     if is_ar:
-                        raw = self._neuralArabicPCM(sub)
+                        raw = self._neuralArabicPCM(
+                            sub, pre_diacritized=pre_diacritized)
                         seg_sr = out_sr
                         pause = _punctPause(sub, out_sr, is_arabic=True,
                                             scale=self._pauseScale())
@@ -1372,8 +1390,11 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             self._neuralPlayer.idle()
         return True
 
-    def _neuralArabicPCM(self, seg):
-        """Arabic run -> normalized/pitched/sped PCM bytes (or None)."""
+    def _neuralArabicPCM(self, seg, pre_diacritized=False):
+        """Arabic run -> normalized/pitched/sped PCM bytes (or None).
+
+        pre_diacritized=True means `seg` is already correctly vocalized (a
+        letter name) and must not be re-diacritized."""
         try:
             from . import timescale
         except Exception:
@@ -1385,10 +1406,13 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             except ValueError:
                 spk = 0
         try:
-            if hasattr(ar_g2p, "clean_arabic_text"):
-                seg = ar_g2p.clean_arabic_text(seg) or seg
-            diac = ar_g2p._neural_pre(seg) if hasattr(ar_g2p,
-                                                      "_neural_pre") else seg
+            if pre_diacritized:
+                diac = seg
+            else:
+                if hasattr(ar_g2p, "clean_arabic_text"):
+                    seg = ar_g2p.clean_arabic_text(seg) or seg
+                diac = ar_g2p._neural_pre(seg) if hasattr(ar_g2p,
+                                                          "_neural_pre") else seg
         except Exception:
             diac = seg
         # Arabic PIPER voice as primary: when the Primary engine is "piper",
@@ -1516,7 +1540,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             if not tokens:
                 return None, engine.SR
             buf = []
-            _eng = _bridge.synthesize if _bridge else engine.synthesize
+            _b = _get_bridge()
+            _eng = _b.synthesize if _b else engine.synthesize
             for block in _eng(tokens, dscale=self._durationScale(),
                               base_f0=self._baseF0(pitchOffset),
                               inflection=self._inflectionValue(),
@@ -1531,33 +1556,39 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         except Exception:
             return None, engine.SR
 
-    def _speakNeural(self, text):
+    def _speakNeural(self, text, pre_diacritized=False):
         """Diacritize (via existing pipeline) then synthesize with the
-        neural voice. Returns True if it produced audio."""
+        neural voice. Returns True if it produced audio.
+
+        If pre_diacritized is True, `text` is already correctly vocalized
+        (e.g. a letter name like 'سِين') and MUST NOT be re-diacritized —
+        re-running the diacritizer adds spurious case endings (إعراب) and
+        corrupts the vowels (سِين -> سِينَ, جِيم -> جَيمَ)."""
         try:
             from . import ar_g2p
             # Fully diacritize via our pipeline (neural Shakkelha if
             # present, else statistical+Mishkal) so the neural VOICE
             # always receives vocalized text and never self-downloads.
             diac = text
-            try:
-                diac = ar_g2p._neural_pre(text)
-            except Exception:
-                pass
-            if not any("\u064B" <= c <= "\u0652" for c in diac):
-                # fall back to per-word diacritization
+            if not pre_diacritized:
                 try:
-                    from . import ar_diacritizer
-                    ar_diacritizer._load()
-                    words = diac.split()
-                    out = []
-                    prev = None
-                    for wd in words:
-                        dd = ar_diacritizer.diacritize(wd, prev) or wd
-                        out.append(dd); prev = wd
-                    diac = " ".join(out)
+                    diac = ar_g2p._neural_pre(text)
                 except Exception:
                     pass
+                if not any("\u064B" <= c <= "\u0652" for c in diac):
+                    # fall back to per-word diacritization
+                    try:
+                        from . import ar_diacritizer
+                        ar_diacritizer._load()
+                        words = diac.split()
+                        out = []
+                        prev = None
+                        for wd in words:
+                            dd = ar_diacritizer.diacritize(wd, prev) or wd
+                            out.append(dd); prev = wd
+                        diac = " ".join(out)
+                    except Exception:
+                        pass
             spk = 0
             if self._voice.startswith("neural"):
                 try:
@@ -1767,7 +1798,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             tokens = g2p.text_to_tokens(msg)
             if not tokens:
                 return
-            _eng = _bridge.synthesize if _bridge else engine.synthesize
+            _b = _get_bridge()
+            _eng = _b.synthesize if _b else engine.synthesize
             for chunk in _eng(tokens, dscale=self._durationScale(),
                               base_f0=self._baseF0(0),
                               volume=self._volume / 100.0,
@@ -1791,11 +1823,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         if is_single_ar and _neuralTTS and engine != "piper" \
                 and self._voice.startswith("neural"):
             nm = _arabicCharName(stripped)
-            if nm and self._speakNeural(nm):
+            if nm and self._speakNeural(nm, pre_diacritized=True):
                 return
         if is_single_ar and engine == "piper":
             nm = _arabicCharName(stripped)
-            if nm and self._speakMixedNeural(nm, pitchOffset):
+            if nm and self._speakMixedNeural(nm, pitchOffset,
+                                             pre_diacritized=True):
                 return
         if (self._voice.startswith("neural") and _neuralTTS
                 and not charMode
@@ -1847,7 +1880,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             tokens = g2p.text_to_tokens(text)
         if not tokens:
             return
-        _eng = _bridge.synthesize if _bridge else engine.synthesize
+        _b = _get_bridge()
+        _eng = _b.synthesize if _b else engine.synthesize
         gen = _eng(
             tokens,
             dscale=self._durationScale(),

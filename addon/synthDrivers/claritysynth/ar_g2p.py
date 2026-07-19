@@ -259,19 +259,33 @@ def _diacritized_word(w, meta=None):
         while j < n and w[j] in DIACS:
             j += 1
         if j < n and w[j] == LAM:
-            # al- : check sun-letter assimilation
-            k = j + 1
-            while k < n and w[k] in DIACS:
-                k += 1
+            # al- : check the lam's own marks first
+            lam_marks = []
+            jm = j + 1
+            while jm < n and w[jm] in DIACS:
+                lam_marks.append(w[jm])
+                jm += 1
             out.append("GS")
             out.append("AE")
-            if k < n and w[k] in SUN_LETTERS:
-                # drop the lam; the shadda written on the sun letter
-                # produces the gemination when it is processed normally
-                i = k
-            else:
+            if SHADDA in lam_marks:
+                # The lam itself is geminated (e.g. الَّذِي, الَّتِي,
+                # الَّذِينَ). This is NOT sun-letter assimilation — keep a
+                # DOUBLED lam and continue into the next letter normally.
                 out.append("L")
-                i = j + 1
+                out.append("L")
+                i = jm            # resume at the letter after the lam+marks
+            else:
+                # al- : check sun-letter assimilation
+                k = j + 1
+                while k < n and w[k] in DIACS:
+                    k += 1
+                if k < n and w[k] in SUN_LETTERS:
+                    # drop the lam; the shadda written on the sun letter
+                    # produces the gemination when it is processed normally
+                    i = k
+                else:
+                    out.append("L")
+                    i = j + 1
         else:
             # bare initial alif: hamzat wasl; honour a written haraka,
             # default to /i/

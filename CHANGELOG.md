@@ -1,5 +1,14 @@
 # ClaritySynth — Changelog
 
+## 2.0.1
+
+Fixes after the 2.0 release:
+
+- **Portable NVDA no longer closes when the neural voice is selected.** A native audio library was being loaded the instant the synthesizer was chosen; on portable copies this could close NVDA silently. It is now loaded only when actually needed, so selecting the voice is safe.
+- **Letter names read correctly again.** Reading Arabic letters by name (e.g. س, ج) no longer adds spurious case-endings or wrong vowels — the names are spoken as a teacher would say them.
+- **الذي / التي and similar words.** Words with a doubled lām (الَّذِي, الَّتِي, الَّذِينَ) are now pronounced with the correct geminated lām instead of dropping it.
+- **The ـنا ending (بيتنا, صديقنا).** The first-person-plural ending نا is no longer mistaken for tanwīn — بيتنا is read *baytunā*, not *baytan*. This affects every tashkeel library except Libtashkeel, which was already correct.
+
 ## 2.0
 
 ClaritySynth grows from a bilingual (Arabic/English) synthesizer into a neural, Arabic-first, **multilingual** one, with downloadable voices, two-voice selection, an in-app diacritization tool, and major reliability and audio-quality fixes.

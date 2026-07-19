@@ -36,12 +36,11 @@ class Bridge(object):
     def __init__(self):
         if _sp is None:
             raise RuntimeError("speechPlayer module unavailable")
-        old = os.getcwd()
-        try:
-            os.chdir(os.path.join(_here, "sp"))
-            self.player = _sp.SpeechPlayer(pyengine.SR)
-        finally:
-            os.chdir(old)
+        # NOTE: no os.chdir here. speechPlayer.py already loads the DLL by
+        # absolute path with os.add_dll_directory, so changing the process
+        # working directory is unnecessary — and on PORTABLE NVDA it is
+        # actively harmful (it relies on relative paths), so we must not.
+        self.player = _sp.SpeechPlayer(pyengine.SR)
         self.hasEx = self.player.hasFrameExSupport()
         self._applyTone(0.0)
 
