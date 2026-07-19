@@ -324,24 +324,27 @@ def _split_scripts(text):
 
 
 def synth_pcm(text, voice=None, variant=None, rate_wpm=None, pitch=None,
-              volume=None, secondary_voice="en-us"):
+              volume=None, secondary_voice="en-us", split_scripts=True):
     """Render `text` to 16-bit mono PCM bytes at sample_rate(). Returns
     b'' on any failure so the caller can fall back to another engine.
 
-    Mixed Arabic/non-Arabic text is split by script: Arabic runs are spoken
-    with `voice` (the chosen Arabic language) and Latin runs with
-    `secondary_voice` (English by default), so the English parts are never
-    dropped when the Arabic voice is active. The runs are concatenated in
-    order into one PCM stream."""
+    split_scripts controls how mixed Arabic/Latin text is handled:
+
+    * split_scripts=False (the Formant driver's choice): the WHOLE text —
+      Arabic and Latin together — is handed to eSpeak in one call with the
+      chosen `voice`. eSpeak NG is genuinely multilingual and reads both
+      scripts itself, so nothing is routed to a separate voice. This is what
+      a formant voice should do: it is proficient in every language.
+
+    * split_scripts=True: Arabic-script runs are spoken with `voice` and
+      Latin runs with `secondary_voice`, concatenated in order. (Kept for any
+      caller that specifically wants per-script routing.)"""
     global _render_buf
     if not text or not text.strip():
         return b""
     if not _ensure_loaded():
         return b""
 
-    # decide whether we actually need to split (only if BOTH scripts present)
-    has_ar = any(_is_arabic_char(c) for c in text)
-    has_latin = any(_is_latin_letter(c) for c in text)
     base_voice = voice or "ar"
 
     with _lock:
@@ -371,13 +374,15 @@ def synth_pcm(text, voice=None, variant=None, rate_wpm=None, pitch=None,
             _render_buf = None
             return out
 
-        # single-script (or no letters at all): render in one shot
-        if not (has_ar and has_latin):
+        has_ar = any(_is_arabic_char(c) for c in text)
+        has_latin = any(_is_latin_letter(c) for c in text)
+
+        # Whole-text mode, or single-script text: render in one shot with the
+        # chosen voice. eSpeak reads the mixed text itself.
+        if not split_scripts or not (has_ar and has_latin):
             return _render_one(text, base_voice, variant)
 
-        # mixed: split and render each run with the right language. The
-        # Arabic variant (e.g. a Klatt timbre) applies only to Arabic runs;
-        # Latin runs use the plain secondary voice.
+        # Per-script routing (only when split_scripts=True and both present).
         chunks = []
         for run_text, is_ar in _split_scripts(text):
             if is_ar:

@@ -377,8 +377,15 @@ def _current_version():
 
 
 def _ver_tuple(v):
+    # Extract the numeric version regardless of any prefix or casing on the
+    # tag ("V2.0.1", "v2.0.1", "release-2.0.1" all -> (2, 0, 1)). We pull the
+    # first dotted-number group out of the string, so a capital "V" on the
+    # GitHub tag can never make an update look older than it is.
+    m = re.search(r"\d+(?:[.\-]\d+)*", str(v))
+    if not m:
+        return (0,)
     out = []
-    for part in re.split(r"[.\-]", str(v)):
+    for part in re.split(r"[.\-]", m.group(0)):
         try:
             out.append(int(part))
         except ValueError:
@@ -397,7 +404,7 @@ def check_for_update(on_result):
             op.addheaders += [("Accept", "application/vnd.github+json")]
             with op.open(_GITHUB_API, timeout=30) as resp:
                 data = _json.loads(resp.read().decode("utf-8", "ignore"))
-            latest = (data.get("tag_name") or data.get("name") or "").lstrip("v")
+            latest = (data.get("tag_name") or data.get("name") or "").lstrip("vV")
             body = data.get("body") or _("(no changelog provided)")
             url = data.get("html_url") or ""
             assets = data.get("assets") or []

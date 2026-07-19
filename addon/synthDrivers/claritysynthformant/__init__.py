@@ -493,9 +493,16 @@ class SynthDriver(_BaseSynthDriver):
 
     def _speakEspeak(self, text, charMode, cancelled):
         """Render `text` with the eSpeak NG multilingual engine and feed it
-        to the player. Returns True if audio was produced. Arabic text is
-        diacritized first with the selected tashkeel library (eSpeak reads
-        diacritics), unless tashkeel is off."""
+        to the player. Returns True if audio was produced.
+
+        eSpeak NG is proficient in every language, so — unlike the Neural
+        driver, which sends only Arabic to the diacritizer and routes other
+        languages to their own voices — the Formant driver sends the WHOLE
+        segment (Arabic and English/French/etc. together) to the diacritizer
+        and then to eSpeak, which reads all of it itself. Diacritization only
+        adds marks to the Arabic words and leaves the rest untouched, so the
+        non-Arabic parts are preserved and spoken (they used to be dropped
+        when only the Arabic parts were sent)."""
         if not text or not text.strip():
             return False
         spk_text = text
@@ -504,6 +511,8 @@ class SynthDriver(_BaseSynthDriver):
                     and _ar_g2p_mod is not None
                     and any("\u0600" <= c <= "\u06FF" for c in text)):
                 try:
+                    # diacritize the WHOLE segment; _neural_pre marks the
+                    # Arabic words and passes English/other through unchanged
                     spk_text = _ar_g2p_mod._neural_pre(text)
                 except Exception:
                     spk_text = text
@@ -518,9 +527,14 @@ class SynthDriver(_BaseSynthDriver):
         lang = self._get_espeakLanguage()
         variant = self._get_espeakVariant()
         try:
+            # split_scripts=False: hand the whole segment to eSpeak with the
+            # chosen voice. eSpeak reads both Arabic and Latin itself, so the
+            # English/French parts are spoken (not dropped, not sent to a
+            # separate voice).
             pcm = _espeak_engine.synth_pcm(
                 spk_text, voice=lang, variant=variant,
-                rate_wpm=wpm, pitch=pitch, volume=vol)
+                rate_wpm=wpm, pitch=pitch, volume=vol,
+                split_scripts=False)
         except Exception:
             pcm = b""
         if not pcm:

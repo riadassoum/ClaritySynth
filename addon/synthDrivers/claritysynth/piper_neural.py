@@ -16,6 +16,7 @@ import os
 import sys
 import ctypes
 import threading
+import re
 
 _here = os.path.dirname(os.path.abspath(__file__))
 _piper = None
@@ -265,7 +266,19 @@ def _phonemize(text, voice=None):
             vptr, ctypes.POINTER(ctypes.c_char_p)).contents.value
         if not remaining:
             break
-    return " ".join(out)
+    result = " ".join(out)
+    # eSpeak inserts a language-switch marker like "(en)" or "(fr)" into the
+    # phoneme stream whenever it decides a word belongs to another language
+    # (e.g. an English word inside French text). Piper's phoneme_id_map has
+    # no id for the literal characters "(", "e", "n", ")", so the voice ends
+    # up trying to PRONOUNCE the marker — the stray "en" sound users hear in
+    # front of foreign words. Strip these markers so the word is simply
+    # phonemized with the current voice's own letters.
+    result = _LANG_SWITCH_RE.sub(" ", result)
+    return result
+
+
+_LANG_SWITCH_RE = re.compile(r"\([a-z]{2,3}(?:-[a-z]+)?\)")
 
 
 def _try_init():

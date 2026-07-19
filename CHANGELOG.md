@@ -1,5 +1,12 @@
 # ClaritySynth — Changelog
 
+## 2.0.2
+
+Fixes after 2.0.1:
+
+- **Formant + eSpeak now reads mixed Arabic/English sentences fully.** When the Formant driver uses eSpeak, the whole sentence — Arabic and English together — is now spoken. Previously only the Arabic parts were read. (eSpeak is multilingual and reads both scripts itself; the Neural driver's separate Arabic/other-language voice handling is unchanged.)
+- **No more stray "en" sound in French and other voices.** Non-Arabic voices no longer insert an odd sound before a foreign word (such as an English word inside French text).
+
 ## 2.0.1
 
 Fixes after the 2.0 release:
