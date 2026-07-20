@@ -1,5 +1,11 @@
 # ClaritySynth — Changelog
 
+## 2.0.3
+
+Fixes after 2.0.2:
+
+- **Saving the configuration now works every time.** Changing the voice (or other settings) and saving with NVDA+Ctrl+C now persists on every save, not only the first time in a session. The voice setting no longer rejects a valid choice because of a stale internal list.
+
 ## 2.0.2
 
 Fixes after 2.0.1:

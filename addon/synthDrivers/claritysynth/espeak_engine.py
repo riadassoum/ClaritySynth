@@ -378,16 +378,26 @@ def synth_pcm(text, voice=None, variant=None, rate_wpm=None, pitch=None,
         has_latin = any(_is_latin_letter(c) for c in text)
 
         # Whole-text mode, or single-script text: render in one shot with the
-        # chosen voice. eSpeak reads the mixed text itself.
+        # chosen voice.
         if not split_scripts or not (has_ar and has_latin):
             return _render_one(text, base_voice, variant)
 
-        # Per-script routing (only when split_scripts=True and both present).
+        # Per-script routing: Arabic runs -> the Arabic voice; Latin runs ->
+        # the secondary language voice. Each run is a SEPARATE synth call, so
+        # a clause boundary in one script can never terminate the other (the
+        # cause of "يا guys" reading only "يا"). If a run comes back empty
+        # (e.g. the secondary voice name was rejected), retry it with the
+        # other voice so text is NEVER silently dropped.
         chunks = []
         for run_text, is_ar in _split_scripts(text):
             if is_ar:
-                chunks.append(_render_one(run_text, base_voice, variant))
+                pcm_run = _render_one(run_text, base_voice, variant)
+                if not pcm_run:
+                    pcm_run = _render_one(run_text, secondary_voice, None)
             else:
-                chunks.append(_render_one(run_text, secondary_voice, None))
+                pcm_run = _render_one(run_text, secondary_voice, None)
+                if not pcm_run:
+                    pcm_run = _render_one(run_text, base_voice, variant)
+            chunks.append(pcm_run)
         return b"".join(chunks)
 

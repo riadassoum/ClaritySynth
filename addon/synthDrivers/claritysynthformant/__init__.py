@@ -171,6 +171,11 @@ class SynthDriver(_BaseSynthDriver):
                       availableInSettingsRing=True,
                       defaultVal="ar",
                       displayName=_("eSpeak language")),
+        DriverSetting("espeakSecondaryLanguage",
+                      _("eSpeak &second language (for non-Arabic words)"),
+                      availableInSettingsRing=True,
+                      defaultVal="en-us",
+                      displayName=_("eSpeak second language")),
         DriverSetting("espeakVariant",
                       _("eSpeak &voice variant (eSpeak engine only)"),
                       availableInSettingsRing=True,
@@ -205,6 +210,7 @@ class SynthDriver(_BaseSynthDriver):
         self._roughness = 6
         self._engine = "auto"
         self._espeakLanguage = "ar"
+        self._espeakSecondaryLanguage = "en-us"
         self._espeakVariant = "none"
         self._tashkeel = "libtashkeel"
         try:
@@ -341,6 +347,19 @@ class SynthDriver(_BaseSynthDriver):
 
     def _set_espeakLanguage(self, value):
         self._espeakLanguage = value
+
+    def _get_availableEspeakSecondaryLanguages(self):
+        return self._get_availableEspeakLanguages()
+
+    # NVDA capitalize() lookup -> availableEspeaksecondarylanguages (lower s/l)
+    def _get_availableEspeaksecondarylanguages(self):
+        return self._get_availableEspeakLanguages()
+
+    def _get_espeakSecondaryLanguage(self):
+        return getattr(self, "_espeakSecondaryLanguage", "en-us")
+
+    def _set_espeakSecondaryLanguage(self, value):
+        self._espeakSecondaryLanguage = value
 
     def _get_availableEspeakVariants(self):
         out = OrderedDict()
@@ -526,15 +545,17 @@ class SynthDriver(_BaseSynthDriver):
         vol = int(max(0, min(200, self._volume * 2)))       # 0..200
         lang = self._get_espeakLanguage()
         variant = self._get_espeakVariant()
+        secondary = self._get_espeakSecondaryLanguage()
         try:
-            # split_scripts=False: hand the whole segment to eSpeak with the
-            # chosen voice. eSpeak reads both Arabic and Latin itself, so the
-            # English/French parts are spoken (not dropped, not sent to a
-            # separate voice).
+            # split_scripts=True: Arabic-script runs are read with the chosen
+            # Arabic voice, and non-Arabic (Latin) runs with the chosen SECOND
+            # language (French, English, etc.) — so "يا guys" reads BOTH parts,
+            # each in its own language, and a French run (text AND numbers) is
+            # read in French, not accented English.
             pcm = _espeak_engine.synth_pcm(
                 spk_text, voice=lang, variant=variant,
                 rate_wpm=wpm, pitch=pitch, volume=vol,
-                split_scripts=False)
+                secondary_voice=secondary, split_scripts=True)
         except Exception:
             pcm = b""
         if not pcm:

@@ -705,10 +705,32 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     # Settings
     # ------------------------------------------------------------------
     def _get_voice(self):
-        return self._voice
+        # NVDA persists this value and validates it against the available
+        # list on every config save. If we ever return a value that is not a
+        # real, listed voice (e.g. the "piper:none" placeholder shown when no
+        # Arabic Piper voice is installed), NVDA's config save fails and — the
+        # save being atomic — no settings save at all until restart. So always
+        # hand back a value that is actually in the list.
+        v = getattr(self, "_voice", "neural0")
+        try:
+            voices = self._getAvailableVoices()
+            if voices and v not in voices:
+                v = next(iter(voices))
+        except Exception:
+            pass
+        return v
 
     def _set_voice(self, value):
-        if value in self.availableVoices:
+        # Accept the value by rebuilding the list FRESH rather than trusting
+        # NVDA's cached self._availableVoices, which can be stale right after
+        # a save/engine change. Rejecting a valid voice here (because the
+        # cache was stale) is what made "save configuration" appear to work
+        # only once per session.
+        try:
+            valid = self._getAvailableVoices()
+        except Exception:
+            valid = {}
+        if not valid or value in valid:
             self._voice = value
 
     def _get_availableSecondaryVoices(self):

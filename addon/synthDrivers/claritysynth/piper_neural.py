@@ -230,9 +230,15 @@ def _set_espeak_voice(voice):
     """Set the eSpeak NG voice/language, robust to region forms. Each Piper
     voice supplies its own espeak voice in its config; we try the exact name
     then fall back to the base language so a French/Spanish/etc. voice is
-    phonemized in the RIGHT language instead of silently staying English."""
+    phonemized in the RIGHT language instead of silently staying English.
+
+    We do NOT skip the call when the voice looks unchanged: the bundled
+    espeak-ng library is a single shared instance, and the Formant driver's
+    eSpeak engine (or a prior call) may have changed the library's current
+    voice behind our back. Re-asserting the voice on every phonemize keeps a
+    French voice from silently phonemizing in English (accented-English bug)."""
     global _current_espeak_voice
-    if not voice or voice == _current_espeak_voice:
+    if not voice:
         return
     if _espeak is None:
         return
@@ -251,8 +257,16 @@ def _phonemize(text, voice=None):
     """Text -> eSpeak IPA string (space-separated per clause), matching
     what Piper's phonemizer would produce. `voice` selects the eSpeak
     language so non-English voices phonemize correctly."""
+    # Always (re-)assert the voice and the return type on the shared library,
+    # because the Formant driver's eSpeak engine uses the SAME espeak-ng
+    # instance and may have changed its state. Without this a French voice can
+    # silently phonemize in English (the accented-English regression).
     if voice:
         _set_espeak_voice(voice)
+    try:
+        _espeak.espeak_TextToPhonemes.restype = ctypes.c_char_p
+    except Exception:
+        pass
     out = []
     tptr = ctypes.c_char_p(text.encode("utf-8"))
     vptr = ctypes.cast(ctypes.pointer(tptr), ctypes.c_void_p)
